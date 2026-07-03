@@ -105,10 +105,20 @@ apply_patches() {
             continue
         fi
         info "Applying $f..."
-        if git apply "$pf" 2>/dev/null; then
+
+        # Strip CRLF → LF (Windows line endings break git apply on Linux)
+        local tmpf
+        tmpf=$(mktemp)
+        tr -d '\r' < "$pf" > "$tmpf"
+
+        if git apply "$tmpf" 2>/dev/null; then
             ok "  $f"
+            rm -f "$tmpf"
         else
-            error "  Failed: $(git apply --check "$pf" 2>&1)"
+            local err
+            err=$(git apply --check "$tmpf" 2>&1 || true)
+            rm -f "$tmpf"
+            error "  $f failed: $err"
             exit 1
         fi
     done
