@@ -19,7 +19,6 @@ PATCH_FILES=(
     "0001-beeper-bridge-fake-dm-cleanup.patch"
     "0002-cache-refresh-accessors.patch"
     "0003-cache-refresh-cmakelists.patch"
-    "0004-cache-refresh-usersettings.patch"
 )
 
 NEW_FILES=(
@@ -97,7 +96,85 @@ apply_patches() {
         fi
     done
 
-    # Apply patches
+    # ── Apply QML changes directly (bypass corrupt patch file issues) ──
+    local QML="${NHEKO_DIR}/resources/qml/pages/UserSettingsPage.qml"
+    if ! grep -q "Force Cache Sync" "$QML" 2>/dev/null; then
+        info "Patching UserSettingsPage.qml (Force Cache Sync button)..."
+        sed -i \
+          '/anchors.rightMargin: anchors.leftMargin$/a\
+\n            \/\/ --- Force Cache Sync button ---\
+            Rectangle {\
+                Layout.fillWidth: true\
+                Layout.preferredHeight: cacheButtonRow.implicitHeight + Nheko.paddingLarge * 2\
+                color: palette.alternateBase\
+                radius: 8\
+                visible: !CacheRefreshController.inProgress\
+\
+                ColumnLayout {\
+                    id: cacheButtonRow\
+                    anchors.centerIn: parent\
+                    spacing: Nheko.paddingSmall\
+\
+                    Label {\
+                        Layout.alignment: Qt.AlignHCenter\
+                        color: palette.text\
+                        font.pointSize: fontMetrics.font.pointSize * 0.9\
+                        text: qsTr("If contacts or rooms appear with incorrect names or avatars, use this to force a refresh.")\
+                        horizontalAlignment: Text.AlignHCenter\
+                        wrapMode: Text.WordWrap\
+                        Layout.fillWidth: true\
+                        Layout.maximumWidth: 400\
+                    }\
+\
+                    Button {\
+                        Layout.alignment: Qt.AlignHCenter\
+                        implicitWidth: 220\
+                        implicitHeight: 40\
+                        text: qsTr("Force Cache Sync")\
+\
+                        contentItem: Label {\
+                            color: palette.highlightedText\
+                            font.bold: true\
+                            font.pointSize: fontMetrics.font.pointSize * 1.05\
+                            horizontalAlignment: Text.AlignHCenter\
+                            verticalAlignment: Text.AlignVCenter\
+                            text: parent.text\
+                        }\
+\
+                        background: Rectangle {\
+                            color: parent.hovered ? Nheko.theme.highlight : Nheko.theme.highlight\
+                            opacity: parent.hovered ? 1.0 : 0.85\
+                            radius: 6\
+                        }\
+\
+                        onClicked: {\
+                            CacheRefreshController.startCacheRefresh();\
+                        }\
+                    }\
+                }\
+            }\
+\n            \/\/ --- Section separator ---\
+            Rectangle {\
+                Layout.fillWidth: true\
+                Layout.preferredHeight: 1\
+                Layout.topMargin: Nheko.paddingMedium\
+                color: palette.buttonText\
+                opacity: 0.3\
+            }' "$QML"
+        ok "  Force Cache Sync button added"
+
+        # Add overlay at end of file
+        sed -i '/^    }$/a\
+\n    \/\/ Overlay that blocks the UI during cache refresh.\
+    CacheRefreshOverlay {\
+        anchors.fill: parent\
+    }' "$QML"
+        ok "  CacheRefreshOverlay added"
+    else
+        ok "  UserSettingsPage.qml already patched"
+    fi
+
+    # Apply remaining patch files
     for f in "${PATCH_FILES[@]}"; do
         local pf="$SCRIPT_DIR/$f"
         if [[ ! -f "$pf" ]]; then
