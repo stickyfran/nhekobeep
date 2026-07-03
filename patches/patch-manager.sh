@@ -209,10 +209,45 @@ cmd_apply() {
 
     info "Applying $(basename "$patch_file")..."
     cd "$REPO_DIR"
-    if git apply "$patch_file"; then
-        ok "Applied $(basename "$patch_file")"
+
+    # Strip CRLF if present (patches created on Windows may have \r\n)
+    local clean_patch="$patch_file.clean"
+    if grep -q $'\r' "$patch_file" 2>/dev/null; then
+        warn "Detected CRLF in patch — converting to LF..."
+        tr -d '\r' < "$patch_file" > "$clean_patch"
     else
-        error "Failed to apply $(basename "$patch_file")"
+        cp "$patch_file" "$clean_patch"
+    fi
+
+    local apply_output
+    apply_output=$(git apply --verbose "$clean_patch" 2>&1) || true
+    local exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
+        ok "Applied $(basename "$patch_file")"
+        rm -f "$clean_patch"
+    else
+        error "Failed to apply $(basename "$patch_file") (exit code: $exit_code)"
+        echo ""
+        echo -e "${YELLOW}--- git apply output: ---${NC}"
+        echo "$apply_output"
+        echo -e "${YELLOW}-------------------------${NC}"
+        echo ""
+
+        local check_output
+        check_output=$(git apply --check "$clean_patch" 2>&1) || true
+        echo -e "${RED}--- git apply --check output: ---${NC}"
+        echo "$check_output"
+        echo -e "${RED}----------------------------------${NC}"
+        echo ""
+
+        echo -e "${BLUE}Debug:${NC}"
+        echo "  File: $(basename "$patch_file") ($(wc -c < "$patch_file") bytes)"
+        echo "  PWD: $(pwd)"
+        echo "  CRLF lines: $(grep -c $'\r' "$patch_file" 2>/dev/null || echo 0)"
+        echo "  First hunk header: $(grep '^@@' "$patch_file" | head -1)"
+
+        rm -f "$clean_patch"
         return 1
     fi
 }
