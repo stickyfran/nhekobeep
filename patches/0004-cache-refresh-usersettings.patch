@@ -7,7 +7,7 @@ index 8f51e66..d302e4f 100644
              anchors.rightMargin: anchors.leftMargin
 
 +            // -----------------------------------------------------------------
-+            // Force Cache Sync button – prominent position at the top.
++            // Force Cache Sync button - prominent position at the top.
 +            // -----------------------------------------------------------------
 +            Rectangle {
 +                Layout.fillWidth: true
