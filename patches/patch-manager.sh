@@ -6,28 +6,29 @@
 #   ./patches/patch-manager.sh              # Interactive menu
 #   ./patches/patch-manager.sh list         # List patches and their status
 #   ./patches/patch-manager.sh apply all    # Apply all patches
-#   ./patches/patch-manager.sh apply 0001   # Apply a specific patch by prefix
+#   ./patches/patch-manager.sh apply 0001   # Apply a specific patch
 #   ./patches/patch-manager.sh revert all   # Revert all patches
 #   ./patches/patch-manager.sh revert 0002  # Revert a specific patch
+#   ./patches/patch-manager.sh fresh        # Full: update + clean + patch + build
 #
 # To add a new patch:
 #   1. Generate your patch file with: git format-patch -1
 #   2. Place it in patches/ with a descriptive name like 0005-my-feature.patch
 #   3. Add a description entry in the PATCHES array below
+#   4. If it adds new files, add entries in NEW_FILES array
 # ============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+NHEKO_DIR="${REPO_DIR}/nheko"
 NEW_FILES_DIR="$SCRIPT_DIR/new-files"
+BUILD_DIR="${REPO_DIR}/build"
 
 # --------------------------------------------------------------------------
 # Patch registry
-# Format: prefix|"Description"|"New file dest mappings (optional)"
-#   prefix: used to match patch files starting with this prefix
-#   description: shown in the menu
-#   new-files: optional semicolon-separated list of src=dest for new files
+#   Format: prefix|"Description"
 # --------------------------------------------------------------------------
 PATCHES=(
     "0001|Beeper bridge fake-DM cleanup (room names & avatars)"
@@ -37,13 +38,31 @@ PATCHES=(
 )
 
 # --------------------------------------------------------------------------
-# New files to install (from patches/new-files/ into the repository)
-# Format: src_relpath (relative to new-files/) = dest_relpath (relative to repo)
+# New files to install (from patches/new-files/ into nheko/)
+# Format: src_relpath = dest_relpath (relative to nheko/)
 # --------------------------------------------------------------------------
 NEW_FILES=(
     "src/CacheRefreshController.h = src/CacheRefreshController.h"
     "src/CacheRefreshController.cpp = src/CacheRefreshController.cpp"
     "resources/qml/ui/CacheRefreshOverlay.qml = resources/qml/ui/CacheRefreshOverlay.qml"
+)
+
+# --------------------------------------------------------------------------
+# CMake build flags — Hunter-based to avoid system dependency hell
+# --------------------------------------------------------------------------
+CMAKE_FLAGS=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DHUNTER_ENABLED=ON
+    -DBUILD_SHARED_LIBS=OFF
+    -DUSE_BUNDLED_LMDB=ON
+    -DUSE_BUNDLED_LMDBXX=ON
+    -DUSE_BUNDLED_MTXCLIENT=ON
+    -DUSE_BUNDLED_SPDLOG=ON
+    -DUSE_BUNDLED_FMT=ON
+    -DUSE_BUNDLED_JSON=ON
+    -DUSE_BUNDLED_COEURL=ON
+    -DUSE_BUNDLED_LIBCURL=ON
+    -DUSE_BUNDLED_OPENSSL=OFF
 )
 
 # --------------------------------------------------------------------------
@@ -54,7 +73,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info()  { echo -e "${BLUE}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -65,51 +84,34 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 # Helpers
 # --------------------------------------------------------------------------
 
-# Find patch file by prefix
 find_patch() {
     local prefix="$1"
-    # Try exact filename first
     if [[ -f "$SCRIPT_DIR/$prefix" ]]; then
         echo "$SCRIPT_DIR/$prefix"
         return 0
     fi
-    # Try prefix match
     local matches=()
     while IFS= read -r -d '' f; do
         matches+=("$f")
     done < <(find "$SCRIPT_DIR" -maxdepth 1 -name "${prefix}*.patch" -print0 2>/dev/null || true)
-
-    if [[ ${#matches[@]} -eq 0 ]]; then
-        return 1
-    fi
+    [[ ${#matches[@]} -eq 0 ]] && return 1
     echo "${matches[0]}"
 }
 
-# Check if a patch is applied (dry-run)
 is_applied() {
     local patch_file="$1"
-    if git apply --check "$patch_file" --reverse 2>/dev/null; then
-        return 0  # Already applied (reverse check succeeds = patch was applied)
-    else
-        return 1  # Not applied
-    fi
+    git apply --check "$patch_file" --reverse 2>/dev/null
 }
 
-# Check if new files are installed
 new_files_installed() {
     for entry in "${NEW_FILES[@]}"; do
-        local src="${entry%%=*}"
-        src="$(echo "$src" | xargs)"  # trim
         local dest="${entry##*=}"
-        dest="$(echo "$dest" | xargs)"  # trim
-        if [[ ! -f "$REPO_DIR/$dest" ]]; then
-            return 1
-        fi
+        dest="$(echo "$dest" | xargs)"
+        [[ ! -f "$NHEKO_DIR/$dest" ]] && return 1
     done
     return 0
 }
 
-# Install new files
 install_new_files() {
     info "Installing new files..."
     for entry in "${NEW_FILES[@]}"; do
@@ -117,34 +119,94 @@ install_new_files() {
         src="$(echo "$src" | xargs)"
         local dest="${entry##*=}"
         dest="$(echo "$dest" | xargs)"
-
         local src_path="$NEW_FILES_DIR/$src"
-        local dest_path="$REPO_DIR/$dest"
-
+        local dest_path="$NHEKO_DIR/$dest"
         if [[ ! -f "$src_path" ]]; then
             warn "Source not found: $src_path — skipping"
             continue
         fi
-
         mkdir -p "$(dirname "$dest_path")"
         cp "$src_path" "$dest_path"
         ok "Installed $dest"
     done
 }
 
-# Remove new files
 remove_new_files() {
     info "Removing new files..."
     for entry in "${NEW_FILES[@]}"; do
         local dest="${entry##*=}"
         dest="$(echo "$dest" | xargs)"
-        local dest_path="$REPO_DIR/$dest"
-
+        local dest_path="$NHEKO_DIR/$dest"
         if [[ -f "$dest_path" ]]; then
             rm "$dest_path"
             ok "Removed $dest"
         fi
     done
+}
+
+# Revert all previously applied patches (in reverse order)
+revert_all_applied() {
+    info "Checking for previously applied patches..."
+    for ((idx = ${#PATCHES[@]} - 1; idx >= 0; idx--)); do
+        local prefix="${PATCHES[$idx]%%|*}"
+        local patch_file
+        patch_file="$(find_patch "$prefix" 2>/dev/null || true)"
+        if [[ -n "$patch_file" ]] && is_applied "$patch_file" 2>/dev/null; then
+            info "Reverting $(basename "$patch_file")..."
+            cd "$NHEKO_DIR"
+            git apply --reverse "$patch_file" 2>/dev/null || true
+            ok "Reverted $(basename "$patch_file")"
+        fi
+    done
+    remove_new_files
+}
+
+# Update nheko submodule to latest upstream
+update_nheko() {
+    info "Updating nheko submodule..."
+
+    # Init submodule if not yet done
+    if [[ ! -f "$NHEKO_DIR/CMakeLists.txt" ]]; then
+        cd "$REPO_DIR"
+        git submodule update --init --recursive
+    fi
+
+    cd "$NHEKO_DIR"
+
+    # Stash any local changes (like previously applied patches)
+    if ! git diff --quiet HEAD 2>/dev/null; then
+        warn "Stashing local changes in nheko..."
+        git stash --quiet
+    fi
+
+    # Fetch and reset to upstream master
+    info "Fetching latest nheko upstream..."
+    git fetch origin 2>/dev/null || true
+    git checkout master 2>/dev/null || git checkout main 2>/dev/null || true
+    git reset --hard origin/master 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
+
+    ok "nheko is now at $(git log --oneline -1)"
+    cd "$REPO_DIR"
+}
+
+# Remove build directory for clean build
+clean_build() {
+    if [[ -d "$BUILD_DIR" ]]; then
+        info "Removing old build directory..."
+        rm -rf "$BUILD_DIR"
+    fi
+}
+
+# Run cmake configure
+cmake_configure() {
+    info "Configuring build with Hunter (bundled deps)..."
+    cmake -S "$NHEKO_DIR" -B "$BUILD_DIR" "${CMAKE_FLAGS[@]}"
+}
+
+# Run cmake build
+cmake_build() {
+    info "Building nheko ($(nproc 2>/dev/null || echo 4) jobs)..."
+    cmake --build "$BUILD_DIR" -- -j"$(nproc 2>/dev/null || echo 4)"
 }
 
 # --------------------------------------------------------------------------
@@ -158,7 +220,6 @@ cmd_list() {
         local desc="${entry#*|}"
         local patch_file
         patch_file="$(find_patch "$prefix" 2>/dev/null || true)"
-
         local status
         if [[ -n "$patch_file" ]] && is_applied "$patch_file" 2>/dev/null; then
             status="${GREEN}APPLIED${NC}"
@@ -167,10 +228,8 @@ cmd_list() {
         else
             status="${RED}FILE MISSING${NC}"
         fi
-
         printf "  %-6s %-60s %b\n" "$prefix" "$desc" "$status"
     done
-
     echo ""
     if new_files_installed; then
         echo -e "  ${GREEN}New files: INSTALLED${NC}"
@@ -184,10 +243,7 @@ cmd_apply() {
     local target="${1:-}"
 
     if [[ "$target" == "all" ]]; then
-        # Install new files first
         install_new_files
-
-        # Apply each patch in order
         for entry in "${PATCHES[@]}"; do
             local prefix="${entry%%|*}"
             cmd_apply "$prefix"
@@ -208,45 +264,23 @@ cmd_apply() {
     fi
 
     info "Applying $(basename "$patch_file")..."
-    cd "$REPO_DIR"
+    cd "$NHEKO_DIR"
 
-    # Strip CRLF if present (patches created on Windows may have \r\n)
+    # Strip CRLF for Windows-generated patches
     local clean_patch="$patch_file.clean"
     if grep -q $'\r' "$patch_file" 2>/dev/null; then
-        warn "Detected CRLF in patch — converting to LF..."
+        warn "Detected CRLF — converting to LF..."
         tr -d '\r' < "$patch_file" > "$clean_patch"
     else
         cp "$patch_file" "$clean_patch"
     fi
 
-    local apply_output
-    apply_output=$(git apply --verbose "$clean_patch" 2>&1) || true
-    local exit_code=$?
-
-    if [[ $exit_code -eq 0 ]]; then
+    if git apply --verbose "$clean_patch" 2>/dev/null; then
         ok "Applied $(basename "$patch_file")"
         rm -f "$clean_patch"
     else
-        error "Failed to apply $(basename "$patch_file") (exit code: $exit_code)"
-        echo ""
-        echo -e "${YELLOW}--- git apply output: ---${NC}"
-        echo "$apply_output"
-        echo -e "${YELLOW}-------------------------${NC}"
-        echo ""
-
-        local check_output
-        check_output=$(git apply --check "$clean_patch" 2>&1) || true
-        echo -e "${RED}--- git apply --check output: ---${NC}"
-        echo "$check_output"
-        echo -e "${RED}----------------------------------${NC}"
-        echo ""
-
-        echo -e "${BLUE}Debug:${NC}"
-        echo "  File: $(basename "$patch_file") ($(wc -c < "$patch_file") bytes)"
-        echo "  PWD: $(pwd)"
-        echo "  CRLF lines: $(grep -c $'\r' "$patch_file" 2>/dev/null || echo 0)"
-        echo "  First hunk header: $(grep '^@@' "$patch_file" | head -1)"
-
+        error "Failed to apply $(basename "$patch_file")"
+        echo -e "${RED}$(git apply --check "$clean_patch" 2>&1)${NC}"
         rm -f "$clean_patch"
         return 1
     fi
@@ -256,13 +290,10 @@ cmd_revert() {
     local target="${1:-}"
 
     if [[ "$target" == "all" ]]; then
-        # Revert patches in reverse order
         for ((idx = ${#PATCHES[@]} - 1; idx >= 0; idx--)); do
             local prefix="${PATCHES[$idx]%%|*}"
             cmd_revert "$prefix"
         done
-
-        # Remove new files
         remove_new_files
         return
     fi
@@ -275,12 +306,12 @@ cmd_revert() {
     fi
 
     if ! is_applied "$patch_file" 2>/dev/null; then
-        warn "Patch '$(basename "$patch_file")' is not applied — nothing to revert."
+        warn "Patch '$(basename "$patch_file")' is not applied."
         return 0
     fi
 
     info "Reverting $(basename "$patch_file")..."
-    cd "$REPO_DIR"
+    cd "$NHEKO_DIR"
     if git apply --reverse "$patch_file"; then
         ok "Reverted $(basename "$patch_file")"
     else
@@ -289,13 +320,68 @@ cmd_revert() {
     fi
 }
 
+# Full fresh workflow: update → clean → patch → build
+cmd_fresh() {
+    echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║        Fresh Patch + Build Workflow             ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Step 1: Update nheko submodule to latest upstream
+    echo -e "${BOLD}Step 1/5: Update nheko submodule${NC}"
+    update_nheko
+    echo ""
+
+    # Step 2: Revert any stale patches
+    echo -e "${BOLD}Step 2/5: Revert old patches${NC}"
+    revert_all_applied
+    echo ""
+
+    # Step 3: Select and apply patches
+    echo -e "${BOLD}Step 3/5: Select patches to apply${NC}"
+    cmd_list
+    echo ""
+    read -rp "Enter patch prefixes to apply (space-separated, e.g. 0001 0002 0003 0004): " selected
+    echo ""
+
+    install_new_files
+    local any_failed=false
+    for prefix in $selected; do
+        if ! cmd_apply "$prefix"; then
+            any_failed=true
+        fi
+    done
+
+    if [[ "$any_failed" == true ]]; then
+        echo ""
+        error "Some patches failed — aborting build."
+        return 1
+    fi
+    echo ""
+
+    # Step 4: Configure cmake with Hunter
+    echo -e "${BOLD}Step 4/5: Configure cmake${NC}"
+    clean_build
+    cmake_configure
+    echo ""
+
+    # Step 5: Build
+    echo -e "${BOLD}Step 5/5: Build${NC}"
+    if cmake_build; then
+        echo ""
+        echo -e "${GREEN}${BOLD}✓ Complete! nheko built successfully with all patches.${NC}"
+        echo "  Binary: $BUILD_DIR/nheko"
+    else
+        echo ""
+        echo -e "${RED}${BOLD}✗ Build failed.${NC}"
+        return 1
+    fi
+}
+
 # --------------------------------------------------------------------------
 # Interactive menu
 # --------------------------------------------------------------------------
 interactive_menu() {
-    # Build config directory
-    local BUILD_DIR="${REPO_DIR}/build"
-
     while true; do
         clear
         echo -e "${BOLD}╔════════════════════════════════════════════╗${NC}"
@@ -305,14 +391,15 @@ interactive_menu() {
         cmd_list
         echo ""
         echo -e "${BOLD}Actions:${NC}"
-        echo "  1) Apply all patches"
+        echo "  1) Apply all patches (no rebuild)"
         echo "  2) Revert all patches"
-        echo "  3) Apply selected patches + Build"
+        echo "  3) FRESH: update nheko → clean → patch → build"
         echo "  4) Build only (if already patched)"
-        echo "  5) List / refresh status"
+        echo "  5) Update nheko submodule only"
+        echo "  6) List / refresh status"
         echo "  0) Exit"
         echo ""
-        read -rp "Select an option [0-5]: " choice
+        read -rp "Select an option [0-6]: " choice
 
         case "$choice" in
             1)
@@ -331,82 +418,26 @@ interactive_menu() {
                 read -rp "Press Enter to continue..."
                 ;;
             3)
-                echo ""
-                echo -e "${BOLD}Select patches to include (space-separated list, e.g.: 0001 0002 0004)${NC}"
-                echo -e "  Available:"
-                for entry in "${PATCHES[@]}"; do
-                    local prefix="${entry%%|*}"
-                    local desc="${entry#*|}"
-                    local applied=""
-                    local patch_file
-                    patch_file="$(find_patch "$prefix" 2>/dev/null || true)"
-                    if [[ -n "$patch_file" ]] && is_applied "$patch_file" 2>/dev/null; then
-                        applied=" ${GREEN}[already applied]${NC}"
-                    fi
-                    echo -e "    ${prefix} — ${desc}${applied}"
-                done
-                echo ""
-                read -rp "Enter prefixes (e.g. 0001 0003 0004): " selected
-                echo ""
-
-                # Install new files if any selected patch needs them
-                install_new_files
-
-                local any_failed=false
-                for prefix in $selected; do
-                    if ! cmd_apply "$prefix"; then
-                        any_failed=true
-                    fi
-                done
-
-                if [[ "$any_failed" == false ]]; then
-                    echo ""
-                    echo -e "${GREEN}Patches applied successfully.${NC}"
-                    echo ""
-                    echo -e "${BOLD}Starting build...${NC}"
-                    echo ""
-
-                    cd "$REPO_DIR"
-                    if [[ ! -d "$BUILD_DIR" ]]; then
-                        echo "Creating build directory..."
-                        cmake -S"${REPO_DIR}/nheko" -B"$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
-                    fi
-
-                    cmake --build "$BUILD_DIR" -- -j"$(nproc 2>/dev/null || echo 4)"
-                    local build_exit=$?
-
-                    echo ""
-                    if [[ $build_exit -eq 0 ]]; then
-                        echo -e "${GREEN}Build completed successfully!${NC}"
-                    else
-                        echo -e "${RED}Build failed (exit code: $build_exit).${NC}"
-                    fi
-                else
-                    echo ""
-                    echo -e "${YELLOW}Some patches failed — skipping build.${NC}"
-                fi
-
+                cmd_fresh || true
                 echo ""
                 read -rp "Press Enter to continue..."
                 ;;
             4)
                 echo ""
-                cd "$REPO_DIR"
                 if [[ ! -d "$BUILD_DIR" ]]; then
-                    echo "Creating build directory..."
-                    cmake -S"${REPO_DIR}/nheko" -B"$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+                    cmake_configure
                 fi
-                cmake --build "$BUILD_DIR" -- -j"$(nproc 2>/dev/null || echo 4)"
-                local build_exit=$?
-                if [[ $build_exit -eq 0 ]]; then
-                    echo -e "${GREEN}Build completed successfully!${NC}"
-                else
-                    echo -e "${RED}Build failed (exit code: $build_exit).${NC}"
-                fi
+                cmake_build || true
                 echo ""
                 read -rp "Press Enter to continue..."
                 ;;
             5)
+                echo ""
+                update_nheko
+                echo ""
+                read -rp "Press Enter to continue..."
+                ;;
+            6)
                 continue
                 ;;
             0)
@@ -429,20 +460,14 @@ main() {
     local arg="${2:-}"
 
     case "$cmd" in
-        list|status)
-            cmd_list
-            ;;
-        apply)
-            cmd_apply "$arg"
-            ;;
-        revert)
-            cmd_revert "$arg"
-            ;;
-        ""|menu|interactive)
-            interactive_menu
-            ;;
+        list|status)   cmd_list ;;
+        apply)         cmd_apply "$arg" ;;
+        revert)        cmd_revert "$arg" ;;
+        fresh)         cmd_fresh ;;
+        update)        update_nheko ;;
+        ""|menu|interactive) interactive_menu ;;
         *)
-            echo "Usage: $0 {list|apply [all|<prefix>]|revert [all|<prefix>]|menu}"
+            echo "Usage: $0 {list|apply [all|<prefix>]|revert [all|<prefix>]|fresh|update|menu}"
             exit 1
             ;;
     esac
