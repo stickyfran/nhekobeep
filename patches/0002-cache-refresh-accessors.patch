@@ -1,0 +1,66 @@
+diff --git a/src/Cache.cpp b/src/Cache.cpp
+index 0f621df..af17fe8 100644
+--- a/src/Cache.cpp
++++ b/src/Cache.cpp
+@@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
+     return lmdb::dbi::open(txn, std::string(room_id + "/members").c_str(), MDB_CREATE);
+ }
+
++lmdb::env &
++Cache::env()
++{
++    return db->env_;
++}
++
++lmdb::dbi
++Cache::roomsDb()
++{
++    return db->rooms;
++}
++
++lmdb::dbi
++Cache::openMembersDb(lmdb::txn &txn, const std::string &room_id)
++{
++    return getMembersDb(txn, room_id);
++}
++
++lmdb::dbi
++Cache::openStatesDb(lmdb::txn &txn, const std::string &room_id)
++{
++    return getStatesDb(txn, room_id);
++}
++
++const QString &
++Cache::localUserId() const
++{
++    return localUserId_;
++}
++
+ lmdb::dbi
+ Cache::getUserKeysDb(lmdb::txn &txn)
+ {
+diff --git a/src/Cache_p.h b/src/Cache_p.h
+index 89fdd84..a58fc5e 100644
+--- a/src/Cache_p.h
++++ b/src/Cache_p.h
+@@ -36,6 +36,20 @@ class Cache final : public QObject
+
+ public:
+     Cache(const QString &userId, QObject *parent = nullptr);
++
++    //! Allow CacheRefreshController to perform surgical LMDB updates.
++    friend class CacheRefreshController;
++
++    //! Return the underlying LMDB environment for direct access.
++    lmdb::env &env();
++    //! Return the rooms database handle.
++    lmdb::dbi roomsDb();
++    //! Open the members database for a given room.
++    lmdb::dbi openMembersDb(lmdb::txn &txn, const std::string &room_id);
++    //! Open the states database for a given room.
++    lmdb::dbi openStatesDb(lmdb::txn &txn, const std::string &room_id);
++    //! The local user's Matrix ID.
++    const QString &localUserId() const;
+     ~Cache() noexcept;
+
+     std::string displayName(const std::string &room_id, const std::string &user_id);

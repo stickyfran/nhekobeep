@@ -1,0 +1,21 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8122313..e443b05 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -465,6 +465,8 @@ set(SRC_FILES
+     src/BlurhashProvider.h
+     src/Cache.cpp
+     src/Cache.h
++    src/CacheRefreshController.cpp
++    src/CacheRefreshController.h
+     src/CacheCryptoStructs.cpp
+     src/CacheCryptoStructs.h
+     src/CacheStructs.h
+@@ -820,6 +822,7 @@ set(QML_SOURCES
+     resources/qml/pages/RegisterPage.qml
+     resources/qml/pages/UserSettingsPage.qml
+     resources/qml/pages/WelcomePage.qml
++    resources/qml/ui/CacheRefreshOverlay.qml
+     resources/qml/ui/NhekoSlider.qml
+     resources/qml/ui/Ripple.qml
+     resources/qml/ui/Snackbar.qml

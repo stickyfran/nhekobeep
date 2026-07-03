@@ -1,0 +1,3 @@
+[submodule "nheko"]
+	path = nheko
+	url = https://github.com/Nheko-Reborn/nheko.git

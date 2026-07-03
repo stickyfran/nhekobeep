@@ -1,0 +1,134 @@
+diff --git a/src/libneochat/models/roomlistmodel.cpp b/src/libneochat/models/roomlistmodel.cpp
+index d975491..35853a9 100644
+--- a/src/libneochat/models/roomlistmodel.cpp
++++ b/src/libneochat/models/roomlistmodel.cpp
+@@ -134,6 +134,9 @@ void RoomListModel::connectRoomSignals(NeoChatRoom *room)
+     connect(room, &Room::avatarChanged, this, [this, room] {
+         refresh(room, {AvatarRole});
+     });
++    connect(room, &Room::memberAvatarUpdated, this, [this, room](const RoomMember &) {
++        refresh(room, {AvatarRole, AvatarImageRole});
++    });
+     connect(room, &Room::tagsChanged, this, [this, room] {
+         refresh(room);
+     });
+diff --git a/src/libneochat/neochatroom.cpp b/src/libneochat/neochatroom.cpp
+index de0b540..abbb2b4 100644
+--- a/src/libneochat/neochatroom.cpp
++++ b/src/libneochat/neochatroom.cpp
+@@ -12,6 +12,8 @@
+ #include <QVideoFrame>
+ #include <QVideoSink>
+ 
++#include <optional>
++
+ #include <Quotient/events/eventcontent.h>
+ #include <Quotient/events/eventrelation.h>
+ #include <Quotient/events/roommessageevent.h>
+@@ -71,6 +73,60 @@ std::function<bool(const Quotient::RoomEvent *)> NeoChatRoom::m_hiddenFilter = [
+     return false;
+ };
+ 
++namespace {
++struct BeeperPeerInfo {
++    QString userId;
++    QUrl avatarUrl;
++};
++
++bool isBeeperBridgeBotMxid(const QString &mxid)
++{
++    if (!mxid.startsWith(u'@') || !mxid.contains(u':')) {
++        return false;
++    }
++    const auto colon = mxid.indexOf(u':');
++    const QString localpart = mxid.mid(1, colon - 1);
++    const QString server = mxid.mid(colon + 1);
++    if (!server.startsWith(u"beeper."_s, Qt::CaseInsensitive)) {
++        return false;
++    }
++    return localpart.contains(u"bot"_s, Qt::CaseInsensitive);
++}
++
++std::optional<BeeperPeerInfo> beeperBridgedPeer(const NeoChatRoom *room)
++{
++    if (room->joinedCount() != 3) {
++        return std::nullopt;
++    }
++
++    const QString localId = room->localMember().id();
++    bool seenBot = false;
++    int peerCount = 0;
++    QString peerId;
++    QUrl peerAvatar;
++
++    for (const RoomMember &m : room->joinedMembers()) {
++        if (m.isEmpty() || m.membershipState() != Membership::Join) {
++            continue;
++        }
++        if (m.id() == localId) {
++            continue;
++        }
++        if (isBeeperBridgeBotMxid(m.id())) {
++            seenBot = true;
++            continue;
++        }
++        ++peerCount;
++        peerId = m.id();
++        peerAvatar = m.avatarUrl();
++    }
++    if (seenBot && peerCount == 1) {
++        return BeeperPeerInfo{std::move(peerId), peerAvatar};
++    }
++    return std::nullopt;
++}
++} // namespace
++
+ NeoChatRoom::NeoChatRoom(Connection *c, QString roomId, JoinState joinState)
+     : Room(c, std::move(roomId), joinState)
+ {
+@@ -183,6 +239,20 @@ NeoChatRoom::NeoChatRoom(Connection *c, QString roomId, JoinState joinState)
+             connect(this, &Room::memberJoined, this, &NeoChatRoom::insertMemberSorted);
+         },
+         Qt::SingleShotConnection);
++    connect(this, &Room::memberAvatarUpdated, this, [this](const RoomMember &member) {
++        if (!Room::avatarUrl().isEmpty()) {
++            return;
++        }
++        for (const auto &dm : directChatMembers()) {
++            if (dm.id() == member.id() && dm != localMember()) {
++                Q_EMIT avatarChanged();
++                return;
++            }
++        }
++        if (const auto peer = beeperBridgedPeer(this); peer && peer->userId == member.id()) {
++            Q_EMIT avatarChanged();
++        }
++    });
+ }
+ 
+ bool NeoChatRoom::visible() const
+@@ -510,6 +580,10 @@ QUrl NeoChatRoom::avatarMediaUrl() const
+         }
+     }
+ 
++    if (const auto peer = beeperBridgedPeer(this)) {
++        return peer->avatarUrl;
++    }
++
+     return {};
+ }
+ 
+diff --git a/src/rooms/models/roomtreemodel.cpp b/src/rooms/models/roomtreemodel.cpp
+index 53a33e7..fe86684 100644
+--- a/src/rooms/models/roomtreemodel.cpp
++++ b/src/rooms/models/roomtreemodel.cpp
+@@ -185,6 +185,9 @@ void RoomTreeModel::connectRoomSignals(NeoChatRoom *room)
+     connect(room, &Room::avatarChanged, this, [this, room] {
+         refreshRoomRoles(room, {AvatarRole});
+     });
++    connect(room, &Room::memberAvatarUpdated, this, [this, room](const RoomMember &) {
++        refreshRoomRoles(room, {AvatarRole, AvatarImageRole});
++    });
+     connect(room, &Room::tagsChanged, this, [this, room] {
+         moveRoom(room);
+     });
