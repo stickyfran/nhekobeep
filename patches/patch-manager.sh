@@ -293,6 +293,9 @@ cmd_revert() {
 # Interactive menu
 # --------------------------------------------------------------------------
 interactive_menu() {
+    # Build config directory
+    local BUILD_DIR="${REPO_DIR}/build"
+
     while true; do
         clear
         echo -e "${BOLD}╔════════════════════════════════════════════╗${NC}"
@@ -301,11 +304,11 @@ interactive_menu() {
         echo ""
         cmd_list
         echo ""
-        echo -e "${BOLD}Options:${NC}"
+        echo -e "${BOLD}Actions:${NC}"
         echo "  1) Apply all patches"
         echo "  2) Revert all patches"
-        echo "  3) Apply a specific patch"
-        echo "  4) Revert a specific patch"
+        echo "  3) Apply selected patches + Build"
+        echo "  4) Build only (if already patched)"
         echo "  5) List / refresh status"
         echo "  0) Exit"
         echo ""
@@ -329,15 +332,77 @@ interactive_menu() {
                 ;;
             3)
                 echo ""
-                read -rp "Enter patch prefix (e.g. 0001, 0002): " prefix
-                cmd_apply "$prefix"
+                echo -e "${BOLD}Select patches to include (space-separated list, e.g.: 0001 0002 0004)${NC}"
+                echo -e "  Available:"
+                for entry in "${PATCHES[@]}"; do
+                    local prefix="${entry%%|*}"
+                    local desc="${entry#*|}"
+                    local applied=""
+                    local patch_file
+                    patch_file="$(find_patch "$prefix" 2>/dev/null || true)"
+                    if [[ -n "$patch_file" ]] && is_applied "$patch_file" 2>/dev/null; then
+                        applied=" ${GREEN}[already applied]${NC}"
+                    fi
+                    echo -e "    ${prefix} — ${desc}${applied}"
+                done
+                echo ""
+                read -rp "Enter prefixes (e.g. 0001 0003 0004): " selected
+                echo ""
+
+                # Install new files if any selected patch needs them
+                install_new_files
+
+                local any_failed=false
+                for prefix in $selected; do
+                    if ! cmd_apply "$prefix"; then
+                        any_failed=true
+                    fi
+                done
+
+                if [[ "$any_failed" == false ]]; then
+                    echo ""
+                    echo -e "${GREEN}Patches applied successfully.${NC}"
+                    echo ""
+                    echo -e "${BOLD}Starting build...${NC}"
+                    echo ""
+
+                    cd "$REPO_DIR"
+                    if [[ ! -d "$BUILD_DIR" ]]; then
+                        echo "Creating build directory..."
+                        cmake -S"${REPO_DIR}/nheko" -B"$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+                    fi
+
+                    cmake --build "$BUILD_DIR" -- -j"$(nproc 2>/dev/null || echo 4)"
+                    local build_exit=$?
+
+                    echo ""
+                    if [[ $build_exit -eq 0 ]]; then
+                        echo -e "${GREEN}Build completed successfully!${NC}"
+                    else
+                        echo -e "${RED}Build failed (exit code: $build_exit).${NC}"
+                    fi
+                else
+                    echo ""
+                    echo -e "${YELLOW}Some patches failed — skipping build.${NC}"
+                fi
+
                 echo ""
                 read -rp "Press Enter to continue..."
                 ;;
             4)
                 echo ""
-                read -rp "Enter patch prefix (e.g. 0001, 0002): " prefix
-                cmd_revert "$prefix"
+                cd "$REPO_DIR"
+                if [[ ! -d "$BUILD_DIR" ]]; then
+                    echo "Creating build directory..."
+                    cmake -S"${REPO_DIR}/nheko" -B"$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+                fi
+                cmake --build "$BUILD_DIR" -- -j"$(nproc 2>/dev/null || echo 4)"
+                local build_exit=$?
+                if [[ $build_exit -eq 0 ]]; then
+                    echo -e "${GREEN}Build completed successfully!${NC}"
+                else
+                    echo -e "${RED}Build failed (exit code: $build_exit).${NC}"
+                fi
                 echo ""
                 read -rp "Press Enter to continue..."
                 ;;
