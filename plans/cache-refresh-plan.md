@@ -1,5 +1,9 @@
 # Cache Refresh Controller - Architectural Plan
 
+> **STATUS: ✅ COMPLETED — Fully implemented in patches/0002 through 0004**
+> See [`patches/patch-manager.sh`](../patches/patch-manager.sh) to apply, or
+> [`PATCHES_README.md`](../PATCHES_README.md) for full documentation.
+
 ## Overview
 
 This feature adds a "Force Cache Sync" mechanism to Nheko that refreshes display names and downloads avatars for the last 1000 active chats. This is needed when a Nheko instance was initialized with an older build and doesn't have up-to-date profile data cached.
