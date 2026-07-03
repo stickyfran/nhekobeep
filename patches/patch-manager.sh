@@ -29,6 +29,9 @@ NEW_FILES=(
 
 CMAKE_FLAGS=(
     -DCMAKE_BUILD_TYPE=Release
+    -DUSE_BUNDLED_LMDBXX=ON
+    -DUSE_BUNDLED_MTXCLIENT=ON
+    -DQT_NO_PRIVATE_MODULE_WARNING=ON
 )
 
 # ── Colors ──────────────────────────────────────────────────────────────────
