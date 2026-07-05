@@ -113,14 +113,14 @@ All changes are consolidated into a **single** patch file to avoid overlay error
 | `src/Cache.cpp` | Beeper fake DM detection + cache accessors (`env()`, `roomsDb()`, etc.) |
 | `src/Cache_p.h` | `friend CacheRefreshController`, `friend BeeperReinitWorker`, accessor declarations |
 | `src/ChatPage.h` | `friend class BeeperReinitController` |
-| `src/UserSettingsPage.h` | `CustomLabel` struct, `CustomLabelListModel` class, settings methods |
-| `src/UserSettingsPage.cpp` | Custom label persistence + `CustomLabelListModel` implementation |
+| `src/UserSettingsPage.h` | `CustomLabel` struct, `CustomLabelListModel` class, settings methods, `PatchesSection`/`ForceCacheSync`/`ForceReinit`/`ManageCustomLabels` enum entries |
+| `src/UserSettingsPage.cpp` | Custom label persistence + `CustomLabelListModel` implementation + native `data()` entries for patch actions |
 | `src/timeline/RoomlistModel.h` | `BeeperNetworkRole`, `BeeperNetworkColorRole`, `networkCache` |
 | `src/timeline/RoomlistModel.cpp` | MXID-based network detection, prewarm, network cache |
 | `src/timeline/CommunitiesModel.cpp` | Custom label name/icon overrides in tag rendering |
 | `src/AvatarProvider.h/.cpp` | `prewarm()` function for avatar cache |
 | `resources/qml/RoomList.qml` | Brand-color badge + `reuseItems`/`cacheBuffer` + custom labels sub-menu |
-| `resources/qml/pages/UserSettingsPage.qml` | Force Cache Sync + Beeper Reinit + Custom Labels UI |
+| `resources/qml/pages/UserSettingsPage.qml` | Patch actions integrated as native `DelegateChoice` blocks under "PARCHES" section header; standalone widgets removed |
 | `resources/qml/Avatar.qml` | `effectivePixelSize` + opacity animations |
 | `src/MxcImageProvider.cpp` | WebP storage format |
 | `src/main.cpp` | `QPixmapCache` increased to 50 MB |
@@ -149,6 +149,50 @@ QML Button → CacheRefreshController::startCacheRefresh()
                 ↓
           Signals: progressUpdated(current, total)
                    refreshFinished(success, message)
+```
+
+## Native Settings Integration
+
+All patch actions (Force Cache Sync, Force Re-Init, Manage Custom Labels) are integrated into the **native `UserSettingsModel`** enum system instead of standalone QML widgets:
+
+### `UserSettingsModel::Indices` entries (in order)
+
+| Index | Name | Type | Action |
+|---|---|---|---|
+| `PatchesSection` | "PARCHES" (section header) | `SectionTitle` | — |
+| `ForceCacheSync` | "Force Cache Sync" | `ForceCacheSync` (custom type) | Calls `CacheRefreshController.startCacheRefresh()` |
+| `ForceReinit` | "Force Full Re-Init" | `ForceReinit` (custom type) | Opens confirmation dialog → `BeeperReinitController.startBeeperReinit()` |
+| `ManageCustomLabels` | "Manage Custom Labels" | `ManageCustomLabels` (custom type) | Opens custom labels management dialog |
+
+The section appears at the bottom of the settings page (above "INFO"), just like all other natively-ordered sections.
+
+### QML DelegateChoice
+
+Three new `DelegateChoice` entries were added to the `DelegateChooser`:
+
+```qml
+DelegateChoice {
+    roleValue: UserSettingsModel.ForceCacheSync
+    Button {
+        text: qsTr("FORCE SYNC")
+        enabled: !CacheRefreshController.inProgress
+        onClicked: CacheRefreshController.startCacheRefresh()
+    }
+}
+DelegateChoice {
+    roleValue: UserSettingsModel.ForceReinit
+    Button {
+        text: qsTr("RE-INITIALIZE")
+        onClicked: confirmReinitDialog.open()
+    }
+}
+DelegateChoice {
+    roleValue: UserSettingsModel.ManageCustomLabels
+    Button {
+        text: qsTr("MANAGE")
+        onClicked: customLabelsDialogComponent.createObject()
+    }
+}
 ```
 
 ## Adding Changes

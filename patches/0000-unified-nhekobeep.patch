@@ -186,128 +186,53 @@ index db4f2cb..3a92803 100644
                      text: qsTr("Create new tag...")
  
 diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
-index 8f51e66..4ae7f90 100644
+index 8f51e66..f5f7e33 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
 +++ b/resources/qml/pages/UserSettingsPage.qml
-@@ -263,6 +263,282 @@ Rectangle {
+@@ -252,6 +252,38 @@ Rectangle {
+                             }
+                         }
+ 
++                        // --- Patch action buttons ---
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceCacheSync
++                            Button {
++                                text: qsTr("FORCE SYNC")
++                                enabled: !CacheRefreshController.inProgress
++                                onClicked: {
++                                    CacheRefreshController.startCacheRefresh();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceReinit
++                            Button {
++                                text: qsTr("RE-INITIALIZE")
++                                onClicked: {
++                                    confirmReinitDialog.open();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ManageCustomLabels
++                            Button {
++                                text: qsTr("MANAGE")
++                                onClicked: {
++                                    var dialog = customLabelsDialogComponent.createObject();
++                                    dialog.show();
++                                    destroyOnClose(dialog);
++                                }
++                            }
++                        }
++
+                         DelegateChoice {
+                             Text {
+                                 text: model.value
+@@ -263,6 +295,161 @@ Rectangle {
          }
      }
  
-+    // --- Force Cache Sync button ---
-+    Rectangle {
-+        Layout.fillWidth: true
-+        Layout.preferredHeight: cacheButtonRow.implicitHeight + Nheko.paddingLarge * 2
-+        color: palette.alternateBase
-+        radius: 8
-+        visible: !CacheRefreshController.inProgress
-+
-+        ColumnLayout {
-+            id: cacheButtonRow
-+            anchors.centerIn: parent
-+            spacing: Nheko.paddingSmall
-+
-+            Label {
-+                Layout.alignment: Qt.AlignHCenter
-+                color: palette.text
-+                font.pointSize: fontMetrics.font.pointSize * 0.9
-+                text: qsTr("If contacts or rooms appear with incorrect names or avatars, use this to force a refresh.")
-+                horizontalAlignment: Text.AlignHCenter
-+                wrapMode: Text.WordWrap
-+                Layout.fillWidth: true
-+                Layout.maximumWidth: 400
-+            }
-+
-+            Button {
-+                Layout.alignment: Qt.AlignHCenter
-+                implicitWidth: 220
-+                implicitHeight: 40
-+                text: qsTr("Force Cache Sync")
-+
-+                contentItem: Label {
-+                    color: palette.highlightedText
-+                    font.bold: true
-+                    font.pointSize: fontMetrics.font.pointSize * 1.05
-+                    horizontalAlignment: Text.AlignHCenter
-+                    verticalAlignment: Text.AlignVCenter
-+                    text: parent.text
-+                }
-+
-+                background: Rectangle {
-+                    color: parent.hovered ? Nheko.theme.highlight : Nheko.theme.highlight
-+                    opacity: parent.hovered ? 1.0 : 0.85
-+                    radius: 6
-+                }
-+
-+                onClicked: {
-+                    CacheRefreshController.startCacheRefresh();
-+                }
-+            }
-+        }
-+    }
-+
-+    // --- Section separator ---
-+    Rectangle {
-+        Layout.fillWidth: true
-+        Layout.preferredHeight: 1
-+        Layout.topMargin: Nheko.paddingMedium
-+        color: palette.buttonText
-+        opacity: 0.3
-+    }
-+
-+    // --- Force Full Beeper Init section ---
-+    Rectangle {
-+        Layout.fillWidth: true
-+        Layout.preferredHeight: beeperReinitColumn.implicitHeight + Nheko.paddingLarge * 2
-+        color: Qt.rgba(1, 0, 0, 0.08)
-+        radius: 8
-+        border.color: Nheko.theme.error
-+        border.width: 1
-+        Layout.topMargin: Nheko.paddingMedium
-+
-+        ColumnLayout {
-+            id: beeperReinitColumn
-+            anchors.centerIn: parent
-+            spacing: Nheko.paddingSmall
-+            width: parent.width - Nheko.paddingLarge * 2
-+
-+            Label {
-+                Layout.alignment: Qt.AlignHCenter
-+                Layout.fillWidth: true
-+                color: Nheko.theme.error
-+                font.pointSize: fontMetrics.font.pointSize * 0.9
-+                text: qsTr("Warning: This will delete all cached room data and rebuild from scratch. Use only if chat names or avatars are incorrect.")
-+                horizontalAlignment: Text.AlignHCenter
-+                wrapMode: Text.WordWrap
-+                Layout.maximumWidth: 450
-+            }
-+
-+            Button {
-+                Layout.alignment: Qt.AlignHCenter
-+                implicitWidth: 260
-+                implicitHeight: 44
-+                text: qsTr("Force Full Beeper Init")
-+
-+                contentItem: Label {
-+                    color: "white"
-+                    font.bold: true
-+                    font.pointSize: fontMetrics.font.pointSize * 1.05
-+                    horizontalAlignment: Text.AlignHCenter
-+                    verticalAlignment: Text.AlignVCenter
-+                    text: parent.text
-+                }
-+
-+                background: Rectangle {
-+                    color: parent.hovered ? Qt.darker("#d32f2f", 1.1) : "#d32f2f"
-+                    radius: 6
-+                }
-+
-+                onClicked: {
-+                    confirmReinitDialog.open();
-+                }
-+            }
-+        }
-+    }
-+
++    // --- Confirmation dialog for Force Re-Init (referenced from DelegateChooser) ---
 +    Dialog {
 +        id: confirmReinitDialog
 +        title: qsTr("Confirm Full Re-Init")
@@ -339,140 +264,133 @@ index 8f51e66..4ae7f90 100644
 +        }
 +    }
 +
-+    // --- Section separator before Custom Labels ---
-+    Rectangle {
-+        Layout.fillWidth: true
-+        Layout.preferredHeight: 1
-+        color: palette.buttonText
-+        opacity: 0.3
-+    }
++    // --- Custom Labels management dialog (referenced from DelegateChooser) ---
++    Component {
++        id: customLabelsDialogComponent
 +
-+    // --- Custom Beeper Labels section ---
-+    Label {
-+        Layout.fillWidth: true
-+        font.pointSize: fontMetrics.font.pointSize * 1.3
-+        font.weight: Font.DemiBold
-+        text: qsTr("Custom Beeper Labels")
-+        color: palette.text
-+    }
++        Dialog {
++            id: customLabelsDialog
++            title: qsTr("Manage Custom Labels")
++            standardButtons: Dialog.Close
++            modal: true
++            anchors.centerIn: parent
++            width: Math.min(500, parent ? parent.width * 0.9 : 500)
 +
-+    Label {
-+        Layout.fillWidth: true
-+        wrapMode: Text.WordWrap
-+        text: qsTr("Define custom names and icons for tags.")
-+        color: palette.buttonText
-+    }
-+
-+    ColumnLayout {
-+        id: customLabelsContainer
-+        objectName: "CustomBeeperLabels"
-+        Layout.fillWidth: true
-+        spacing: Nheko.paddingSmall
-+
-+        Repeater {
-+            model: CustomLabelListModel
-+
-+            delegate: RowLayout {
-+                Layout.fillWidth: true
-+                spacing: Nheko.paddingSmall
-+
-+                TextField {
-+                    Layout.fillWidth: true
-+                    text: model.displayName
-+                    placeholderText: qsTr("Display Name")
-+                    onTextChanged: CustomLabelListModel.updateLabel(
-+                        index, model.tag, text, model.iconKey)
-+                }
-+
-+                ComboBox {
-+                    id: iconCombo
-+                    Layout.preferredWidth: 120
-+                    model: CustomLabelListModel.availableIcons()
-+                    currentIndex: {
-+                        var icons = CustomLabelListModel.availableIcons();
-+                        return Math.max(0, icons.indexOf(model.iconKey));
-+                    }
-+                    onCurrentIndexChanged: {
-+                        if (currentIndex >= 0) {
-+                            var icons = CustomLabelListModel.availableIcons();
-+                            CustomLabelListModel.updateLabel(
-+                                index, model.tag, model.displayName,
-+                                icons[currentIndex]);
-+                        }
-+                    }
-+                }
++            ColumnLayout {
++                spacing: Nheko.paddingMedium
++                width: parent ? parent.width - Nheko.paddingLarge * 2 : 460
 +
 +                Label {
-+                    text: model.tag
-+                    color: palette.buttonText
-+                    font.pixelSize: fontMetrics.font.pixelSize * 0.85
-+                    Layout.preferredWidth: 80
-+                    elide: Text.ElideRight
++                    text: qsTr("Define custom names and icons for tags.")
++                    wrapMode: Text.WordWrap
++                    Layout.fillWidth: true
 +                }
 +
-+                ImageButton {
-+                    Layout.preferredWidth: 22
-+                    Layout.preferredHeight: 22
-+                    image: ":/icons/icons/ui/delete.svg"
-+                    ToolTip.text: qsTr("Remove label")
-+                    ToolTip.visible: hovered
-+                    hoverEnabled: true
-+                    onClicked: CustomLabelListModel.removeLabel(index)
++                ColumnLayout {
++                    id: customLabelsContainer
++                    objectName: "CustomBeeperLabels"
++                    Layout.fillWidth: true
++                    spacing: Nheko.paddingSmall
++
++                    Repeater {
++                        model: CustomLabelListModel
++
++                        delegate: RowLayout {
++                            Layout.fillWidth: true
++                            spacing: Nheko.paddingSmall
++
++                            TextField {
++                                Layout.fillWidth: true
++                                text: model.displayName
++                                placeholderText: qsTr("Display Name")
++                                onTextChanged: CustomLabelListModel.updateLabel(
++                                    index, model.tag, text, model.iconKey)
++                            }
++
++                            ComboBox {
++                                id: iconCombo
++                                Layout.preferredWidth: 120
++                                model: CustomLabelListModel.availableIcons()
++                                currentIndex: {
++                                    var icons = CustomLabelListModel.availableIcons();
++                                    return Math.max(0, icons.indexOf(model.iconKey));
++                                }
++                                onCurrentIndexChanged: {
++                                    if (currentIndex >= 0) {
++                                        var icons = CustomLabelListModel.availableIcons();
++                                        CustomLabelListModel.updateLabel(
++                                            index, model.tag, model.displayName,
++                                            icons[currentIndex]);
++                                    }
++                                }
++                            }
++
++                            Label {
++                                text: model.tag
++                                color: palette.buttonText
++                                font.pixelSize: fontMetrics.font.pixelSize * 0.85
++                                Layout.preferredWidth: 80
++                                elide: Text.ElideRight
++                            }
++
++                            ImageButton {
++                                Layout.preferredWidth: 22
++                                Layout.preferredHeight: 22
++                                image: ":/icons/icons/ui/delete.svg"
++                                ToolTip.text: qsTr("Remove label")
++                                ToolTip.visible: hovered
++                                hoverEnabled: true
++                                onClicked: CustomLabelListModel.removeLabel(index)
++                            }
++                        }
++                    }
++
++                    Button {
++                        text: qsTr("Add Custom Label")
++                        Layout.alignment: Qt.AlignLeft
++                        onClicked: addCustomLabelDialog.open()
++                    }
++                }
++            }
++
++            Dialog {
++                id: addCustomLabelDialog
++                title: qsTr("Add Custom Label")
++                standardButtons: Dialog.Ok | Dialog.Cancel
++                modal: true
++                anchors.centerIn: parent
++
++                ColumnLayout {
++                    spacing: Nheko.paddingMedium
++                    Label { text: qsTr("Tag:") }
++                    TextField {
++                        id: newTagField
++                        placeholderText: "u.mylabel"
++                        Layout.fillWidth: true
++                    }
++                    Label { text: qsTr("Display Name:") }
++                    TextField {
++                        id: newNameField
++                        placeholderText: qsTr("My Label")
++                        Layout.fillWidth: true
++                    }
++                }
++
++                onAccepted: {
++                    if (newTagField.text && newNameField.text) {
++                        CustomLabelListModel.addLabel(
++                            newTagField.text, newNameField.text,
++                            ":/icons/icons/ui/tag.svg");
++                    }
 +                }
 +            }
 +        }
-+
-+        Button {
-+            text: qsTr("Add Custom Label")
-+            Layout.alignment: Qt.AlignLeft
-+            onClicked: addCustomLabelDialog.open()
-+        }
-+    }
-+
-+    Dialog {
-+        id: addCustomLabelDialog
-+        title: qsTr("Add Custom Label")
-+        standardButtons: Dialog.Ok | Dialog.Cancel
-+        modal: true
-+
-+        ColumnLayout {
-+            spacing: Nheko.paddingMedium
-+            Label { text: qsTr("Tag:") }
-+            TextField {
-+                id: newTagField
-+                placeholderText: "u.mylabel"
-+                Layout.fillWidth: true
-+            }
-+            Label { text: qsTr("Display Name:") }
-+            TextField {
-+                id: newNameField
-+                placeholderText: qsTr("My Label")
-+                Layout.fillWidth: true
-+            }
-+        }
-+
-+        onAccepted: {
-+            if (newTagField.text && newNameField.text) {
-+                CustomLabelListModel.addLabel(
-+                    newTagField.text, newNameField.text,
-+                    ":/icons/icons/ui/tag.svg");
-+            }
-+        }
-+    }
-+
-+    // --- Section separator before back button area ---
-+    Rectangle {
-+        Layout.fillWidth: true
-+        Layout.preferredHeight: 1
-+        Layout.topMargin: Nheko.paddingMedium
-+        color: palette.buttonText
-+        opacity: 0.3
 +    }
 +
      ImageButton {
          id: backButton
          anchors.top: parent.top
-@@ -275,5 +551,15 @@ Rectangle {
+@@ -275,5 +462,15 @@ Rectangle {
          ToolTip.text: qsTr("Back")
          onClicked: mainWindow.pop()
      }
@@ -801,7 +719,7 @@ index ba4c4dd..3fd37ea 100644
              QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
                                   "/media_cache",
 diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
-index db3bf7f..34c8790 100644
+index db3bf7f..64d4d9d 100644
 --- a/src/UserSettingsPage.cpp
 +++ b/src/UserSettingsPage.cpp
 @@ -172,6 +172,8 @@ UserSettings::load(std::optional<QString> profile)
@@ -1042,8 +960,62 @@ index db3bf7f..34c8790 100644
  QHash<int, QByteArray>
  UserSettingsModel::roleNames() const
  {
+@@ -1196,6 +1420,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return tr("Periodically update community routing information");
+         case ExpireEvents:
+             return tr("Periodically delete expired events");
++        case PatchesSection:
++            return tr("PARCHES");
++        case ForceCacheSync:
++            return tr("Force Cache Sync");
++        case ForceReinit:
++            return tr("Force Full Re-Init");
++        case ManageCustomLabels:
++            return tr("Manage Custom Labels");
+         }
+     } else if (role == Value) {
+         switch (index.row()) {
+@@ -1342,6 +1574,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return i->updateSpaceVias();
+         case ExpireEvents:
+             return i->expireEvents();
++        case ForceCacheSync:
++        case ForceReinit:
++        case ManageCustomLabels:
++            return {};
+         }
+     } else if (role == Description) {
+         switch (index.row()) {
+@@ -1543,6 +1779,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+                       "to have one client running this regularly.");
+         case IgnoredUsers:
+             return tr("Manage your ignored users.");
++        case ForceCacheSync:
++            return tr("If contacts or rooms appear with incorrect names or avatars, use this to force a refresh of their profile data.");
++        case ForceReinit:
++            return tr("Warning: This will delete all cached room data and rebuild from scratch. Use only if chat names or avatars are incorrect.");
++        case ManageCustomLabels:
++            return tr("Define custom names and icons for tags.");
+         }
+     } else if (role == Type) {
+         switch (index.row()) {
+@@ -1633,6 +1875,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return ConfigureHiddenEvents;
+         case IgnoredUsers:
+             return ManageIgnoredUsers;
++        case PatchesSection:
++            return SectionTitle;
++        case ForceCacheSync:
++            return ForceCacheSync;
++        case ForceReinit:
++            return ForceReinit;
++        case ManageCustomLabels:
++            return ManageCustomLabels;
+         }
+     } else if (role == ValueLowerBound) {
+         switch (index.row()) {
 diff --git a/src/UserSettingsPage.h b/src/UserSettingsPage.h
-index c1c198d..ccb2b65 100644
+index c1c198d..512ccf3 100644
 --- a/src/UserSettingsPage.h
 +++ b/src/UserSettingsPage.h
 @@ -12,6 +12,19 @@
@@ -1139,7 +1111,19 @@ index c1c198d..ccb2b65 100644
      bool useIdenticon_;
      bool openImageExternal_;
      bool openVideoExternal_;
-@@ -571,7 +593,6 @@ class UserSettingsModel : public QAbstractListModel
+@@ -564,6 +586,11 @@ class UserSettingsModel : public QAbstractListModel
+         DeviceId,
+         DeviceFingerprint,
+ 
++        PatchesSection,
++        ForceCacheSync,
++        ForceReinit,
++        ManageCustomLabels,
++
+         LoginInfoSection,
+         UserId,
+         Homeserver,
+@@ -571,7 +598,6 @@ class UserSettingsModel : public QAbstractListModel
          Version,
          Platform,
          COUNT,
@@ -1147,7 +1131,17 @@ index c1c198d..ccb2b65 100644
          AccessToken,
  #ifdef Q_OS_MACOS
          ScaleFactor,
-@@ -628,3 +649,50 @@ public:
+@@ -596,6 +622,9 @@ public:
+         XSignKeysRequestDownload,
+         ConfigureHiddenEvents,
+         ManageIgnoredUsers,
++        ForceCacheSync,
++        ForceReinit,
++        ManageCustomLabels,
+     };
+     Q_ENUM(Types);
+ 
+@@ -628,3 +657,50 @@ public:
      Q_INVOKABLE void requestCrossSigningSecrets();
      Q_INVOKABLE void downloadCrossSigningSecrets();
  };
