@@ -6,11 +6,10 @@
 nhekobeep/
 ├── nheko/                      # Submodule → Nheko-Reborn/nheko
 ├── patches/
-│   ├── 0001-beeper-bridge-fake-dm-cleanup.patch
-│   ├── 0002-cache-refresh-accessors.patch
-│   ├── 0003-cache-refresh-cmakelists.patch
+│   ├── 0000-unified-nhekobeep.patch  # Single unified patch (all changes)
 │   ├── patch-manager.sh        # One-shot build script
-│   └── new-files/              # New source files
+│   ├── new-files/              # New source files
+│   └── archive/                # Previous individual patches (reference)
 ├── PATCHES_README.md
 └── plans/
 ```
@@ -26,7 +25,7 @@ cd nhekobeep
 This will:
 1. Update `nheko/` submodule to latest upstream
 2. Clean old build directory
-3. Apply all patches + new files
+3. Apply unified patch + copy new files
 4. Configure cmake
 5. Build
 
@@ -98,17 +97,42 @@ sudo pacman -S \
   openssl
 ```
 
-## Patch Index
+## Unified Patch System
 
-| # | File | Description |
-|---|------|-------------|
-| 0001 | `0001-beeper-bridge-fake-dm-cleanup.patch` | Beeper bridge DM detection — fixes room names/avatars for bridged chats (Instagram, WhatsApp, etc.). Applied via `git apply` to `Cache.cpp`. |
-| 0002 | `0002-cache-refresh-accessors.patch` | Adds public accessor methods to `Cache` class (`env()`, `roomsDb()`, `openMembersDb()`, `openStatesDb()`, `localUserId()`) + `friend class CacheRefreshController`. Applied to `Cache.cpp` and `Cache_p.h`. |
-| 0003 | `0003-cache-refresh-cmakelists.patch` | Registers `CacheRefreshController.cpp/.h` and `CacheRefreshOverlay.qml` in `CMakeLists.txt`. |
-| — | (QML changes via `sed` in patch-manager.sh) | The 0004 patch was corrupt (Windows CRLF), so `patch-manager.sh` applies UserSettingsPage changes directly with `sed`. |
-| — | `new-files/src/CacheRefreshController.h` | QML singleton exposing `startCacheRefresh()` + signals. |
-| — | `new-files/src/CacheRefreshController.cpp` | Background worker: profile fetching, LMDB writes, avatar download, batching. |
-| — | `new-files/resources/qml/ui/CacheRefreshOverlay.qml` | Modal overlay: spinner, progress bar, blocking MouseArea. |
+All changes are consolidated into a **single** patch file to avoid overlay errors:
+
+| Patch | Description | Modified Files |
+|-------|-------------|----------------|
+| `0000-unified-nhekobeep.patch` | All Beeper integration + scroll perf + custom labels | 16 files (see below) |
+
+### What's included:
+
+| Source File | Features |
+|-------------|----------|
+| `CMakeLists.txt` | Registers all new source + QML files |
+| `src/Cache.cpp` | Beeper fake DM detection + cache accessors (`env()`, `roomsDb()`, etc.) |
+| `src/Cache_p.h` | `friend CacheRefreshController`, `friend BeeperReinitWorker`, accessor declarations |
+| `src/ChatPage.h` | `friend class BeeperReinitController` |
+| `src/UserSettingsPage.h` | `CustomLabel` struct, `CustomLabelListModel` class, settings methods |
+| `src/UserSettingsPage.cpp` | Custom label persistence + `CustomLabelListModel` implementation |
+| `src/timeline/RoomlistModel.h` | `BeeperNetworkRole`, `BeeperNetworkColorRole`, `networkCache` |
+| `src/timeline/RoomlistModel.cpp` | MXID-based network detection, prewarm, network cache |
+| `src/timeline/CommunitiesModel.cpp` | Custom label name/icon overrides in tag rendering |
+| `src/AvatarProvider.h/.cpp` | `prewarm()` function for avatar cache |
+| `resources/qml/RoomList.qml` | Brand-color badge + `reuseItems`/`cacheBuffer` + custom labels sub-menu |
+| `resources/qml/pages/UserSettingsPage.qml` | Force Cache Sync + Beeper Reinit + Custom Labels UI |
+| `resources/qml/Avatar.qml` | `effectivePixelSize` + opacity animations |
+| `src/MxcImageProvider.cpp` | WebP storage format |
+| `src/main.cpp` | `QPixmapCache` increased to 50 MB |
+
+### New files (copied separately):
+| File | Description |
+|------|-------------|
+| `src/CacheRefreshController.h/.cpp` | Background worker: profile fetching, LMDB writes, avatar download |
+| `src/BeeperBridge.h` | Bridge detection helpers |
+| `src/BeeperReinitController.h/.cpp` | Full cache re-init controller |
+| `resources/qml/ui/CacheRefreshOverlay.qml` | Cache refresh modal overlay |
+| `resources/qml/ui/BeeperReinitOverlay.qml` | Re-init modal overlay |
 
 ## CacheRefreshController Architecture
 
@@ -127,9 +151,39 @@ QML Button → CacheRefreshController::startCacheRefresh()
                    refreshFinished(success, message)
 ```
 
-## Adding New Patches
+## Adding Changes
 
-1. Make changes in `nheko/`
-2. Generate patch: `cd nheko && git diff -- src/YourFile.cpp > ../patches/0005-desc.patch`
-3. Register in `patch-manager.sh` under `PATCH_FILES` array
-4. If new files: add to `NEW_FILES` array and place in `patches/new-files/`
+**Important:** Always work from the unified patch to avoid overlay errors.
+
+1. Make changes directly in `nheko/` source files
+2. Regenerate the unified patch:
+   ```bash
+   git -C nheko diff HEAD -- \
+     CMakeLists.txt \
+     resources/qml/Avatar.qml \
+     resources/qml/RoomList.qml \
+     resources/qml/pages/UserSettingsPage.qml \
+     src/AvatarProvider.cpp \
+     src/AvatarProvider.h \
+     src/Cache.cpp \
+     src/Cache_p.h \
+     src/ChatPage.h \
+     src/MxcImageProvider.cpp \
+     src/UserSettingsPage.cpp \
+     src/UserSettingsPage.h \
+     src/main.cpp \
+     src/timeline/CommunitiesModel.cpp \
+     src/timeline/RoomlistModel.cpp \
+     src/timeline/RoomlistModel.h \
+     > patches/0000-unified-nhekobeep.patch
+   ```
+3. If you added new files:
+   - Add to `NEW_FILES` array in `patch-manager.sh`
+   - Place files in `patches/new-files/`
+   - Add to `CMakeLists.txt` changes in the unified patch
+
+## Superseded Patches
+
+Previous individual patches are archived in `patches/archive/` for reference:
+- `0001` through `0011`: Individual patches (replaced by unified patch)
+- `neochat-beeper-room-avatar.patch`: Reference only (NeoChat-based, not used)
