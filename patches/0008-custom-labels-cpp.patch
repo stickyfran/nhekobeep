@@ -332,6 +332,8 @@ index c1c198d..cc87252 100644
      QStringList recentReactions_;
      QList<QStringList> collapsedSpaces_;
 +    QVariantList customLabels_;
++    void loadCustomLabels();
++    void saveCustomLabels();
      bool useIdenticon_;
      bool openImageExternal_;
      bool openVideoExternal_;
