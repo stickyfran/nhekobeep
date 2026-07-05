@@ -64,7 +64,7 @@ isBeeperBridgeBotMxid(std::string_view mxid)
 // room (exactly 3 members), returns the real counterpart's mxid or empty.
 // Returns empty when the room is NOT a Beeper bridge room.
 std::string
-beeperFakeDmCounterpartMxid(const std::map<std::string, cache::MemberInfo> &members,
+beeperFakeDmCounterpartMxid(const std::map<std::string, MemberInfo> &members,
                             const std::string &localUserId)
 {
     if (members.size() != 3)
@@ -169,8 +169,8 @@ fetchProfileSync(const std::string &mxid,
 
     http::client()->get_profile(
       mxid,
-      [&done, &success, &name, &avatar](const mtx::responses::Profile &res,
-                                         mtx::http::RequestErr err) {
+      [&done, &success, &name, &avatar, &mxid](const mtx::responses::Profile &res,
+                                                mtx::http::RequestErr err) {
           if (!err) {
               name    = res.display_name;
               avatar  = res.avatar_url;
@@ -284,14 +284,14 @@ CacheRefreshWorker::process()
                     // Detect Beeper bridge rooms: 3 members, one is a bot.
                     auto membersdb = cache->openMembersDb(txn, rid);
                     if (membersdb.size(txn) == 3) {
-                        std::map<std::string, cache::MemberInfo> members;
+                        std::map<std::string, MemberInfo> members;
                         auto mcursor = lmdb::cursor::open(txn, membersdb);
                         std::string_view uid, mdata;
                         while (mcursor.get(uid, mdata, MDB_NEXT)) {
                             try {
                                 members.emplace(
                                   std::string(uid),
-                                  nlohmann::json::parse(mdata).get<cache::MemberInfo>());
+                                  nlohmann::json::parse(mdata).get<MemberInfo>());
                             } catch (...) {
                             }
                         }
@@ -485,12 +485,12 @@ CacheRefreshWorker::process()
 
                         for (const auto &update : updates) {
                             std::string_view existingData;
-                            cache::MemberInfo memberInfo;
+                            MemberInfo memberInfo;
                             if (membersdb.get(txn, update.user_id, existingData)) {
                                 try {
                                     memberInfo =
                                       nlohmann::json::parse(existingData)
-                                        .get<cache::MemberInfo>();
+                                        .get<MemberInfo>();
                                 } catch (...) {
                                 }
                             } else {
