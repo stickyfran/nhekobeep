@@ -1,0 +1,116 @@
+diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
+index 8f51e66..a8563e0 100644
+--- a/resources/qml/pages/UserSettingsPage.qml
++++ b/resources/qml/pages/UserSettingsPage.qml
+@@ -263,6 +263,100 @@ Rectangle {
+         }
+     }
+ 
++    // --- Force Full Beeper Init section ---
++    Rectangle {
++        Layout.fillWidth: true
++        Layout.preferredHeight: beeperReinitColumn.implicitHeight + Nheko.paddingLarge * 2
++        color: Qt.rgba(1, 0, 0, 0.08)
++        radius: 8
++        border.color: Nheko.theme.error
++        border.width: 1
++        Layout.topMargin: Nheko.paddingMedium
++
++        ColumnLayout {
++            id: beeperReinitColumn
++            anchors.centerIn: parent
++            spacing: Nheko.paddingSmall
++            width: parent.width - Nheko.paddingLarge * 2
++
++            Label {
++                Layout.alignment: Qt.AlignHCenter
++                Layout.fillWidth: true
++                color: Nheko.theme.error
++                font.pointSize: fontMetrics.font.pointSize * 0.9
++                text: qsTr("Warning: This will delete all cached room data and rebuild from scratch. Use only if chat names or avatars are incorrect.")
++                horizontalAlignment: Text.AlignHCenter
++                wrapMode: Text.WordWrap
++                Layout.maximumWidth: 450
++            }
++
++            Button {
++                Layout.alignment: Qt.AlignHCenter
++                implicitWidth: 260
++                implicitHeight: 44
++                text: qsTr("Force Full Beeper Init")
++
++                contentItem: Label {
++                    color: "white"
++                    font.bold: true
++                    font.pointSize: fontMetrics.font.pointSize * 1.05
++                    horizontalAlignment: Text.AlignHCenter
++                    verticalAlignment: Text.AlignVCenter
++                    text: parent.text
++                }
++
++                background: Rectangle {
++                    color: parent.hovered ? Qt.darker("#d32f2f", 1.1) : "#d32f2f"
++                    radius: 6
++                }
++
++                onClicked: {
++                    confirmReinitDialog.open();
++                }
++            }
++        }
++    }
++
++    Dialog {
++        id: confirmReinitDialog
++        title: qsTr("Confirm Full Re-Init")
++        standardButtons: Dialog.Ok | Dialog.Cancel
++        modal: true
++        anchors.centerIn: parent
++
++        ColumnLayout {
++            spacing: Nheko.paddingMedium
++            width: parent ? parent.width : 400
++
++            Label {
++                text: qsTr("Are you sure you want to perform a full Beeper re-initialization?")
++                font.bold: true
++                color: Nheko.theme.error
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++
++            Label {
++                text: qsTr("This will:\n• Delete all cached room data\n• Re-download all chat history\n• Re-fetch all avatars\n\nThe process may take several minutes.")
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++        }
++
++        onAccepted: {
++            BeeperReinitController.startBeeperReinit();
++        }
++    }
++
++    // --- Section separator before back button area ---
++    Rectangle {
++        Layout.fillWidth: true
++        Layout.preferredHeight: 1
++        Layout.topMargin: Nheko.paddingMedium
++        color: palette.buttonText
++        opacity: 0.3
++    }
++
+     ImageButton {
+         id: backButton
+         anchors.top: parent.top
+@@ -275,5 +369,10 @@ Rectangle {
+         ToolTip.text: qsTr("Back")
+         onClicked: mainWindow.pop()
+     }
++
++    // Overlay that blocks the UI during Beeper re-initialization.
++    BeeperReinitOverlay {
++        anchors.fill: parent
++    }
+ }
+ 

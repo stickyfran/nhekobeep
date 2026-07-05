@@ -21,12 +21,18 @@ PATCH_FILES=(
     "0003-cache-refresh-cmakelists.patch"
     "0007-beeper-mxid-network-badge.patch"
     "0008-custom-labels-cpp.patch"
+    "0010-beeper-reinit-backend.patch"
+    "0011-beeper-reinit-qml.patch"
 )
 
 NEW_FILES=(
     "src/CacheRefreshController.h"
     "src/CacheRefreshController.cpp"
     "resources/qml/ui/CacheRefreshOverlay.qml"
+    "src/BeeperBridge.h"
+    "src/BeeperReinitController.h"
+    "src/BeeperReinitController.cpp"
+    "resources/qml/ui/BeeperReinitOverlay.qml"
 )
 
 CMAKE_FLAGS=(

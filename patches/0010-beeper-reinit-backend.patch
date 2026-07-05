@@ -1,0 +1,177 @@
+diff --git a/src/Cache.cpp b/src/Cache.cpp
+index 0f621df..53f0ba2 100644
+--- a/src/Cache.cpp
++++ b/src/Cache.cpp
+@@ -3360,6 +3360,79 @@ Cache::invite(std::string_view roomid)
+     return result;
+ }
+ 
++namespace {
++//
++// Beeper "fake DM" detection helpers.
++//
++// Beeper bridges (Instagram, WhatsApp, etc.) model 1:1 chats as 3-member
++// rooms: <local user, real contact, @<service>bot:beeper.<tld>>. These
++// helpers identify the bridge bot and the real counterpart so we can
++// render the room as a native Matrix DM instead of a tiny group.
++//
++bool
++isBeeperBridgeBotMxid(std::string_view mxid)
++{
++    if (mxid.size() < 4 || mxid.front() != '@')
++        return false;
++
++    const auto colon = mxid.find(':');
++    if (colon == std::string_view::npos || colon + 1 >= mxid.size())
++        return false;
++
++    const auto localpart = mxid.substr(1, colon - 1);
++    const auto server    = mxid.substr(colon + 1);
++
++    // server must start with "beeper." (e.g. beeper.local, beeper.com)
++    if (server.size() < 7 || server.compare(0, 7, "beeper.") != 0)
++        return false;
++
++    // localpart must contain "bot" (case-insensitive)
++    auto toLower = [](char c) -> char {
++        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
++    };
++    for (size_t i = 0; i + 3 <= localpart.size(); ++i) {
++        if (toLower(localpart[i]) == 'b' && toLower(localpart[i + 1]) == 'o' &&
++            toLower(localpart[i + 2]) == 't')
++            return true;
++    }
++    return false;
++}
++
++//
++// Given a fully-populated <mxid -> MemberInfo> map (containing exactly
++// the three members of a candidate Beeper room), returns a pointer to
++// the real counterpart's MemberInfo when the room is a Beeper "fake DM".
++// Returns nullptr otherwise.
++//
++const MemberInfo *
++beeperFakeDmCounterpart(const std::map<std::string, MemberInfo> &members,
++                        const std::string &localUserId)
++{
++    if (members.size() != 3)
++        return nullptr;
++
++    bool hasLocal              = false;
++    bool hasBot                = false;
++    const MemberInfo *contact  = nullptr;
++
++    for (const auto &[mxid, info] : members) {
++        if (mxid == localUserId) {
++            hasLocal = true;
++        } else if (isBeeperBridgeBotMxid(mxid)) {
++            hasBot = true;
++        } else {
++            // Only accept a single non-local, non-bot member as the
++            // counterpart; otherwise this isn't a 1:1-shaped room.
++            if (contact)
++                return nullptr;
++            contact = &info;
++        }
++    }
++
++    return (hasLocal && hasBot) ? contact : nullptr;
++}
++} // namespace
++
+ QString
+ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+ {
+@@ -3382,6 +3455,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
+         }
+     }
+ 
++    // Beeper "fake DM": prefer the real contact's individual avatar over
++    // the (usually empty) group avatar Nheko would otherwise compose.
++    if (membersdb.size(txn) == 3) {
++        std::map<std::string, MemberInfo> members;
++        auto bcursor = lmdb::cursor::open(txn, membersdb);
++        std::string_view buser_id, bmember_data;
++        while (bcursor.get(buser_id, bmember_data, MDB_NEXT)) {
++            try {
++                members.emplace(buser_id,
++                                nlohmann::json::parse(bmember_data).get<MemberInfo>());
++            } catch (const nlohmann::json::exception &e) {
++                nhlog::db()->warn("failed to parse member info: {}", e.what());
++            }
++        }
++        bcursor.close();
++
++        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
++            if (!cp->avatar_url.empty())
++                return QString::fromStdString(cp->avatar_url);
++        }
++    }
++
+     // We don't use an avatar for group chats.
+     if (membersdb.size(txn) > 2)
+         return QString();
+@@ -3473,6 +3568,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+     if (total == 1 && !members.empty())
+         return QString::fromStdString(members.begin()->second.name);
+ 
++    // Beeper "fake DM": render as a 1:1 with the real contact's name only,
++    // hiding the bridge bot ("@<service>bot:beeper.<tld>"). This avoids
++    // localised strings like "Juan Pérez y Instagram Bridge bot" leaking
++    // into the room list.
++    if (total == 3) {
++        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
++            if (!cp->name.empty())
++                return QString::fromStdString(cp->name);
++        }
++    }
++
+     auto first_member = [&members, this]() {
+         for (const auto &m : members) {
+             if (m.first != localUserId_.toStdString())
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8122313..341490a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -463,6 +463,9 @@ set(SRC_FILES
+     src/AvatarProvider.h
+     src/BlurhashProvider.cpp
+     src/BlurhashProvider.h
++    src/BeeperBridge.h
++    src/BeeperReinitController.cpp
++    src/BeeperReinitController.h
+     src/Cache.cpp
+     src/Cache.h
+     src/CacheCryptoStructs.cpp
+@@ -820,6 +823,7 @@ set(QML_SOURCES
+     resources/qml/pages/RegisterPage.qml
+     resources/qml/pages/UserSettingsPage.qml
+     resources/qml/pages/WelcomePage.qml
++    resources/qml/ui/BeeperReinitOverlay.qml
+     resources/qml/ui/NhekoSlider.qml
+     resources/qml/ui/Ripple.qml
+     resources/qml/ui/Snackbar.qml
+diff --git a/src/Cache_p.h b/src/Cache_p.h
+index 89fdd84..49f27c2 100644
+--- a/src/Cache_p.h
++++ b/src/Cache_p.h
+@@ -34,6 +34,8 @@ class Cache final : public QObject
+ {
+     Q_OBJECT
+ 
++    friend class BeeperReinitController;
++
+ public:
+     Cache(const QString &userId, QObject *parent = nullptr);
+     ~Cache() noexcept;
+diff --git a/src/ChatPage.h b/src/ChatPage.h
+index d89457d..6a5f9d9 100644
+--- a/src/ChatPage.h
++++ b/src/ChatPage.h
+@@ -220,4 +220,6 @@ private:
+ 
+     // Stores when our windows lost focus. Invalid when our windows have focus.
+     QDateTime lastWindowActive;
++    //! Allow BeeperReinitController to pause/resume the sync loop.
++    friend class BeeperReinitController;
+ };
