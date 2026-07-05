@@ -1,0 +1,48 @@
+diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
+index 4608aca..e02f59a 100644
+--- a/src/AvatarProvider.cpp
++++ b/src/AvatarProvider.cpp
+@@ -68,6 +68,27 @@ resolve(const QString &room_id,
+ 
+     resolve(std::move(avatarUrl), size, receiver, callback);
+ }
++
++// Dummy receiver used for pre-warming — lives long enough for async downloads
++static QObject *
++prewarmReceiver()
++{
++    static QObject *r = new QObject;
++    return r;
++}
++
++void
++prewarm(const QVector<QPair<QString, int>> &avatars)
++{
++    auto recv = prewarmReceiver();
++
++    for (const auto &[url, size] : avatars) {
++        resolve(url, size, recv, [](QPixmap) {
++            // Result discarded — only the cache population matters.
++            // The QPixmapCache insert happens inside resolve().
++        });
++    }
++}
+ }
+ 
+ #include "moc_AvatarProvider.cpp"
+diff --git a/src/AvatarProvider.h b/src/AvatarProvider.h
+index b73b1ad..187c540 100644
+--- a/src/AvatarProvider.h
++++ b/src/AvatarProvider.h
+@@ -28,4 +28,11 @@ resolve(const QString &room_id,
+         int size,
+         QObject *receiver,
+         AvatarCallback cb);
++
++// Pre-warm the avatar cache for a list of (avatarUrl, size) pairs.
++// This triggers asynchronous downloads into both the disk cache and
++// the QPixmapCache (VRAM), so avatars appear instantly when scrolled to.
++// The download responses are discarded — only the cache population matters.
++void
++prewarm(const QVector<QPair<QString, int>> &avatars);
+ }

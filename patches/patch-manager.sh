@@ -21,6 +21,7 @@ PATCH_FILES=(
     "0003-cache-refresh-cmakelists.patch"
     "0007-beeper-mxid-network-badge.patch"
     "0008-custom-labels-cpp.patch"
+    "0009-scroll-perf-avatarprovider-prewarm.patch"
     "0010-beeper-reinit-backend.patch"
     "0011-beeper-reinit-qml.patch"
 )
