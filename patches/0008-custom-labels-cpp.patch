@@ -1,0 +1,420 @@
+diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
+index db3bf7f..34c8790 100644
+--- a/src/UserSettingsPage.cpp
++++ b/src/UserSettingsPage.cpp
+@@ -172,6 +172,8 @@ UserSettings::load(std::optional<QString> profile)
+     disableCertificateValidation_ =
+       settings.value("disable_certificate_validation", false).toBool();
+ 
++    loadCustomLabels();
++
+     applyTheme();
+ 
+     if (profile)
+@@ -1013,6 +1015,228 @@ UserSettings::save()
+     settings.sync();
+ }
+ 
++// -----------------------------------------------------------------------
++// Beeper Custom Label persistence
++// -----------------------------------------------------------------------
++void
++UserSettings::loadCustomLabels()
++{
++    customLabels_.clear();
++    auto raw = settings.value("user/beeper_custom_labels").toList();
++    for (const auto &item : std::as_const(raw)) {
++        auto map = item.toMap();
++        CustomLabel label;
++        label.tag         = map.value("tag").toString();
++        label.displayName = map.value("displayName").toString();
++        label.iconKey     = map.value("iconKey").toString();
++        if (!label.tag.isEmpty() && !label.displayName.isEmpty())
++            customLabels_.append(QVariant::fromValue(label));
++    }
++}
++
++void
++UserSettings::addCustomLabel(const QString &tag,
++                              const QString &displayName,
++                              const QString &iconKey)
++{
++    for (int i = 0; i < customLabels_.size(); ++i) {
++        auto label = customLabels_[i].value<CustomLabel>();
++        if (label.tag == tag) {
++            customLabels_[i] = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    customLabels_.append(QVariant::fromValue(CustomLabel{tag, displayName, iconKey}));
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::removeCustomLabel(const QString &tag)
++{
++    customLabels_.erase(std::remove_if(customLabels_.begin(),
++                                        customLabels_.end(),
++                                        [&tag](const QVariant &v) {
++                                            return v.value<CustomLabel>().tag == tag;
++                                        }),
++                         customLabels_.end());
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::updateCustomLabel(const QString &tag,
++                                 const QString &displayName,
++                                 const QString &iconKey)
++{
++    for (auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == tag) {
++            v = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    addCustomLabel(tag, displayName, iconKey);
++}
++
++QString
++UserSettings::customLabelDisplayName(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.displayName;
++    }
++    return {};
++}
++
++QString
++UserSettings::customLabelIconKey(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.iconKey;
++    }
++    return {};
++}
++
++void
++UserSettings::saveCustomLabels()
++{
++    QVariantList raw;
++    raw.reserve(customLabels_.size());
++    for (const auto &v : std::as_const(customLabels_)) {
++        auto label = v.value<CustomLabel>();
++        QVariantMap map;
++        map["tag"]         = label.tag;
++        map["displayName"] = label.displayName;
++        map["iconKey"]     = label.iconKey;
++        raw.append(map);
++    }
++    settings.setValue("user/beeper_custom_labels", raw);
++}
++
++// -----------------------------------------------------------------------
++// CustomLabelListModel
++// -----------------------------------------------------------------------
++CustomLabelListModel::CustomLabelListModel(QObject *parent)
++  : QAbstractListModel(parent)
++{
++    instance_ = this;
++    connect(UserSettings::instance().get(),
++            &UserSettings::customLabelsChanged,
++            this,
++            &CustomLabelListModel::refreshFromSettings);
++    refreshFromSettings();
++}
++
++CustomLabelListModel *
++CustomLabelListModel::create(QQmlEngine *, QJSEngine *)
++{
++    Q_ASSERT(instance_);
++    QJSEngine::setObjectOwnership(instance_, QJSEngine::CppOwnership);
++    return instance_;
++}
++
++QHash<int, QByteArray>
++CustomLabelListModel::roleNames() const
++{
++    return {
++      {TagRole, "tag"},
++      {DisplayNameRole, "displayName"},
++      {IconKeyRole, "iconKey"},
++    };
++}
++
++QVariant
++CustomLabelListModel::data(const QModelIndex &index, int role) const
++{
++    if (index.row() < 0 || index.row() >= labels_.size())
++        return {};
++
++    const auto &label = labels_.at(index.row());
++    switch (role) {
++    case TagRole:
++        return label.tag;
++    case DisplayNameRole:
++        return label.displayName;
++    case IconKeyRole:
++        return label.iconKey;
++    default:
++        return {};
++    }
++}
++
++void
++CustomLabelListModel::addLabel(const QString &tag,
++                                const QString &displayName,
++                                const QString &iconKey)
++{
++    UserSettings::instance()->addCustomLabel(tag, displayName, iconKey);
++}
++
++void
++CustomLabelListModel::removeLabel(int row)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->removeCustomLabel(labels_.at(row).tag);
++}
++
++void
++CustomLabelListModel::updateLabel(int row,
++                                   const QString &tag,
++                                   const QString &displayName,
++                                   const QString &iconKey)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->updateCustomLabel(tag, displayName, iconKey);
++}
++
++QStringList
++CustomLabelListModel::availableIcons() const
++{
++    return {
++      QStringLiteral(":/icons/icons/ui/tag.svg"),
++      QStringLiteral(":/icons/icons/ui/star.svg"),
++      QStringLiteral(":/icons/icons/ui/bookmark.svg"),
++      QStringLiteral(":/icons/icons/ui/chat.svg"),
++      QStringLiteral(":/icons/icons/ui/clock.svg"),
++      QStringLiteral(":/icons/icons/ui/building-shop.svg"),
++      QStringLiteral(":/icons/icons/ui/people.svg"),
++      QStringLiteral(":/icons/icons/ui/world.svg"),
++      QStringLiteral(":/icons/icons/ui/alert.svg"),
++      QStringLiteral(":/icons/icons/ui/checkmark.svg"),
++    };
++}
++
++QString
++CustomLabelListModel::displayNameForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelDisplayName(tag);
++}
++
++QString
++CustomLabelListModel::iconKeyForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelIconKey(tag);
++}
++
++void
++CustomLabelListModel::refreshFromSettings()
++{
++    beginResetModel();
++    labels_.clear();
++    auto custom = UserSettings::instance()->customLabels();
++    for (const auto &v : std::as_const(custom))
++        labels_.append(v.value<CustomLabel>());
++    endResetModel();
++}
++
+ QHash<int, QByteArray>
+ UserSettingsModel::roleNames() const
+ {
+diff --git a/src/UserSettingsPage.h b/src/UserSettingsPage.h
+index c1c198d..cc87252 100644
+--- a/src/UserSettingsPage.h
++++ b/src/UserSettingsPage.h
+@@ -12,6 +12,19 @@
+ 
+ #include <optional>
+ 
++struct CustomLabel
++{
++    Q_GADGET
++    Q_PROPERTY(QString tag MEMBER tag CONSTANT)
++    Q_PROPERTY(QString displayName MEMBER displayName CONSTANT)
++    Q_PROPERTY(QString iconKey MEMBER iconKey CONSTANT)
++
++public:
++    QString tag;
++    QString displayName;
++    QString iconKey;
++};
++
+ class UserSettings final : public QObject
+ {
+     Q_OBJECT
+@@ -123,6 +136,9 @@ class UserSettings final : public QObject
+                  updateSpaceViasChanged)
+     Q_PROPERTY(bool expireEvents READ expireEvents WRITE setExpireEvents NOTIFY expireEventsChanged)
+ 
++    // Beeper Custom Labels
++    Q_PROPERTY(QVariantList customLabels READ customLabels NOTIFY customLabelsChanged)
++
+     UserSettings();
+ 
+ public:
+@@ -130,13 +146,9 @@ public:
+     static void initialize(std::optional<QString> profile);
+     static UserSettings *create(QQmlEngine *qmlEngine, QJSEngine *)
+     {
+-        // The instance has to exist before it is used. We cannot replace it.
+         Q_ASSERT(instance());
+-
+-        // The engine has to have the same thread affinity as the singleton.
+         Q_ASSERT(qmlEngine->thread() == instance()->thread());
+ 
+-        // There can only be one engine accessing the singleton.
+         static QJSEngine *s_engine = nullptr;
+         if (s_engine)
+             Q_ASSERT(qmlEngine == s_engine);
+@@ -247,6 +259,14 @@ public:
+     void setUpdateSpaceVias(bool state);
+     void setExpireEvents(bool state);
+ 
++    // Beeper Custom Labels
++    QVariantList customLabels() const { return customLabels_; }
++    void addCustomLabel(const QString &tag, const QString &displayName, const QString &iconKey);
++    void removeCustomLabel(const QString &tag);
++    void updateCustomLabel(const QString &tag, const QString &displayName, const QString &iconKey);
++    QString customLabelDisplayName(const QString &rawTag) const;
++    QString customLabelIconKey(const QString &rawTag) const;
++
+     QString theme() const { return !theme_.isEmpty() ? theme_ : defaultTheme_; }
+     bool messageHoverHighlight() const { return messageHoverHighlight_; }
+     bool enlargeEmojiOnlyMessages() const { return enlargeEmojiOnlyMessages_; }
+@@ -287,7 +307,6 @@ public:
+         if (emojiFont_ == QLatin1String("Default")) {
+             return tr("Default");
+         }
+-
+         return emojiFont_;
+     }
+     Presence presence() const { return presence_; }
+@@ -385,6 +404,7 @@ signals:
+     void useIdenticonChanged(bool state);
+     void openImageExternalChanged(bool state);
+     void openVideoExternalChanged(bool state);
++    void customLabelsChanged();
+     void hiddenPinsChanged();
+     void hiddenWidgetsChanged();
+     void recentReactionsChanged();
+@@ -393,7 +413,6 @@ signals:
+     void expireEventsChanged(bool state);
+ 
+ private:
+-    // Default to system theme if QT_QPA_PLATFORMTHEME var is set.
+     QString defaultTheme_ = QProcessEnvironment::systemEnvironment()
+                                 .value(QStringLiteral("QT_QPA_PLATFORMTHEME"), QLatin1String(""))
+                                 .isEmpty()
+@@ -462,6 +481,7 @@ private:
+     QStringList hiddenWidgets_;
+     QStringList recentReactions_;
+     QList<QStringList> collapsedSpaces_;
++    QVariantList customLabels_;
+     bool useIdenticon_;
+     bool openImageExternal_;
+     bool openVideoExternal_;
+@@ -571,7 +591,6 @@ class UserSettingsModel : public QAbstractListModel
+         Version,
+         Platform,
+         COUNT,
+-        // hidden for now
+         AccessToken,
+ #ifdef Q_OS_MACOS
+         ScaleFactor,
+@@ -628,3 +647,50 @@ public:
+     Q_INVOKABLE void requestCrossSigningSecrets();
+     Q_INVOKABLE void downloadCrossSigningSecrets();
+ };
++
++//! QML-accessible singleton for managing custom Beeper labels.
++class CustomLabelListModel : public QAbstractListModel
++{
++    Q_OBJECT
++    QML_ELEMENT
++    QML_SINGLETON
++
++public:
++    enum Roles
++    {
++        TagRole = Qt::UserRole,
++        DisplayNameRole,
++        IconKeyRole,
++    };
++
++    CustomLabelListModel(QObject *parent = nullptr);
++    static CustomLabelListModel *create(QQmlEngine *, QJSEngine *);
++
++    QHash<int, QByteArray> roleNames() const override;
++    int rowCount(const QModelIndex &parent = QModelIndex()) const override
++    {
++        (void)parent;
++        return labels_.size();
++    }
++    QVariant data(const QModelIndex &index, int role) const override;
++
++    Q_INVOKABLE void addLabel(const QString &tag,
++                              const QString &displayName,
++                              const QString &iconKey);
++    Q_INVOKABLE void removeLabel(int row);
++    Q_INVOKABLE void updateLabel(int row,
++                                 const QString &tag,
++                                 const QString &displayName,
++                                 const QString &iconKey);
++    Q_INVOKABLE QStringList availableIcons() const;
++    Q_INVOKABLE QString displayNameForTag(const QString &tag) const;
++    Q_INVOKABLE QString iconKeyForTag(const QString &tag) const;
++
++private slots:
++    void refreshFromSettings();
++
++private:
++    QList<CustomLabel> labels_;
++
++    inline static CustomLabelListModel *instance_ = nullptr;
++};
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index a707c10..7124757 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -191,11 +191,19 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+                 return tr("Messages from your server or administrator.");
+             }
+         } else {
++            // Check for Beeper custom label override
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty())
++                    return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+             case CommunitiesModel::Roles::Tooltip:
++                if (!customName.isEmpty())
++                    return customName;
+                 return tag.mid(2);
+             }
+         }

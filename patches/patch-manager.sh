@@ -19,8 +19,8 @@ PATCH_FILES=(
     "0001-beeper-bridge-fake-dm-cleanup.patch"
     "0002-cache-refresh-accessors.patch"
     "0003-cache-refresh-cmakelists.patch"
-    "0005-beeper-network-badge-model.patch"
-    "0006-beeper-network-badge-qml.patch"
+    "0007-beeper-mxid-network-badge.patch"
+    "0008-custom-labels-cpp.patch"
 )
 
 NEW_FILES=(
@@ -166,6 +166,170 @@ apply_patches() {
         ok "  CacheRefreshOverlay added"
     else
         ok "  UserSettingsPage.qml already patched"
+    fi
+
+    # ── Apply QML changes for Beeper context menu ──
+    local QML_ROOMLIST="${NHEKO_DIR}/resources/qml/RoomList.qml"
+    if ! grep -q "CustomLabelListModel" "$QML_ROOMLIST" 2>/dev/null; then
+        info "Patching RoomList.qml (Custom Labels sub-menu)..."
+        sed -i \
+          '/onObjectRemoved: (index, object) => tagsMenu.removeItem(object)/a\
+\n                \/\/ Custom Beeper labels from user settings\
+               MenuSeparator {\
+                   visible: CustomLabelListModel.rowCount() > 0\
+               }\
+               Instantiator {\
+                   model: CustomLabelListModel\
+\
+                   delegate: MenuItem {\
+                       property string t: model.tag\
+\
+                       checkable: true\
+                       checked: roomContextMenu.tags !== undefined \&\& roomContextMenu.tags.includes(t)\
+                       text: model.displayName\
+\
+                       onTriggered: Rooms.toggleTag(roomContextMenu.roomid, t, checked)\
+                   }\
+\
+                   onObjectAdded: (index, object) => {\
+                       var insertIdx = index + tagsMenu.count - 1;\
+                       tagsMenu.insertItem(insertIdx, object);\
+                   }\
+                   onObjectRemoved: (index, object) => tagsMenu.removeItem(object)\
+               }' "$QML_ROOMLIST"
+        ok "  Custom Labels sub-menu added"
+    else
+        ok "  RoomList.qml already patched for custom labels"
+    fi
+
+    # ── Apply QML changes for Beeper Custom Labels settings ──
+    local QML_SETTINGS="${NHEKO_DIR}/resources/qml/pages/UserSettingsPage.qml"
+    if ! grep -q "CustomBeeperLabels" "$QML_SETTINGS" 2>/dev/null; then
+        info "Patching UserSettingsPage.qml (Custom Labels settings)..."
+        sed -i \
+          '/^    }$/a\
+\n            \/\/ --- Custom Beeper Labels section ---\
+           Rectangle {\
+               Layout.fillWidth: true\
+               Layout.preferredHeight: 1\
+               color: palette.buttonText\
+               opacity: 0.3\
+           }\
+\
+           Label {\
+               Layout.fillWidth: true\
+               font.pointSize: fontMetrics.font.pointSize * 1.3\
+               font.weight: Font.DemiBold\
+               text: qsTr("Custom Beeper Labels")\
+               color: palette.text\
+           }\
+\
+           Label {\
+               Layout.fillWidth: true\
+               wrapMode: Text.WordWrap\
+               text: qsTr("Define custom names and icons for tags.")\
+               color: palette.buttonText\
+           }\
+\
+           ColumnLayout {\
+               id: customLabelsContainer\
+               objectName: "CustomBeeperLabels"\
+               Layout.fillWidth: true\
+               spacing: Nheko.paddingSmall\
+\
+               Repeater {\
+                   model: CustomLabelListModel\
+\
+                   delegate: RowLayout {\
+                       Layout.fillWidth: true\
+                       spacing: Nheko.paddingSmall\
+\
+                       TextField {\
+                           Layout.fillWidth: true\
+                           text: model.displayName\
+                           placeholderText: qsTr("Display Name")\
+                           onTextChanged: CustomLabelListModel.updateLabel(\
+                               index, model.tag, text, model.iconKey)\
+                       }\
+\
+                       ComboBox {\
+                           id: iconCombo\
+                           Layout.preferredWidth: 120\
+                           model: CustomLabelListModel.availableIcons()\
+                           currentIndex: {\
+                               var icons = CustomLabelListModel.availableIcons();\
+                               return Math.max(0, icons.indexOf(model.iconKey));\
+                           }\
+                           onCurrentIndexChanged: {\
+                               if (currentIndex >= 0) {\
+                                   var icons = CustomLabelListModel.availableIcons();\
+                                   CustomLabelListModel.updateLabel(\
+                                       index, model.tag, model.displayName,\
+                                       icons[currentIndex]);\
+                               }\
+                           }\
+                       }\
+\
+                       Label {\
+                           text: model.tag\
+                           color: palette.buttonText\
+                           font.pixelSize: fontMetrics.font.pixelSize * 0.85\
+                           Layout.preferredWidth: 80\
+                           elide: Text.ElideRight\
+                       }\
+\
+                       ImageButton {\
+                           Layout.preferredWidth: 22\
+                           Layout.preferredHeight: 22\
+                           image: ":/icons/icons/ui/delete.svg"\
+                           ToolTip.text: qsTr("Remove label")\
+                           ToolTip.visible: hovered\
+                           hoverEnabled: true\
+                           onClicked: CustomLabelListModel.removeLabel(index)\
+                       }\
+                   }\
+               }\
+\
+               Button {\
+                   text: qsTr("Add Custom Label")\
+                   Layout.alignment: Qt.AlignLeft\
+                   onClicked: addCustomLabelDialog.open()\
+               }\
+           }\
+\
+           Dialog {\
+               id: addCustomLabelDialog\
+               title: qsTr("Add Custom Label")\
+               standardButtons: Dialog.Ok | Dialog.Cancel\
+               modal: true\
+\
+               ColumnLayout {\
+                   spacing: Nheko.paddingMedium\
+                   Label { text: qsTr("Tag:") }\
+                   TextField {\
+                       id: newTagField\
+                       placeholderText: "u.mylabel"\
+                       Layout.fillWidth: true\
+                   }\
+                   Label { text: qsTr("Display Name:") }\
+                   TextField {\
+                       id: newNameField\
+                       placeholderText: qsTr("My Label")\
+                       Layout.fillWidth: true\
+                   }\
+               }\
+\
+               onAccepted: {\
+                   if (newTagField.text \&\& newNameField.text) {\
+                       CustomLabelListModel.addLabel(\
+                           newTagField.text, newNameField.text,\
+                           ":/icons/icons/ui/tag.svg");\
+                   }\
+               }\
+           }' "$QML_SETTINGS"
+        ok "  Custom Labels settings section added"
+    else
+        ok "  UserSettingsPage.qml already patched for custom labels"
     fi
 
     # Apply remaining patch files
