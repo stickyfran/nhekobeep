@@ -1,7 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8122313..341490a 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -463,6 +466,9 @@ set(SRC_FILES
+@@ -463,6 +463,9 @@ set(SRC_FILES
      src/AvatarProvider.h
      src/BlurhashProvider.cpp
      src/BlurhashProvider.h
@@ -10,16 +11,17 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 +    src/BeeperReinitController.h
      src/Cache.cpp
      src/Cache.h
-     src/CacheRefreshController.cpp
+     src/CacheCryptoStructs.cpp
 @@ -820,6 +823,7 @@ set(QML_SOURCES
      resources/qml/pages/RegisterPage.qml
      resources/qml/pages/UserSettingsPage.qml
      resources/qml/pages/WelcomePage.qml
 +    resources/qml/ui/BeeperReinitOverlay.qml
-     resources/qml/ui/CacheRefreshOverlay.qml
      resources/qml/ui/NhekoSlider.qml
      resources/qml/ui/Ripple.qml
+     resources/qml/ui/Snackbar.qml
 diff --git a/src/Cache_p.h b/src/Cache_p.h
+index 89fdd84..49f27c2 100644
 --- a/src/Cache_p.h
 +++ b/src/Cache_p.h
 @@ -34,6 +34,8 @@ class Cache final : public QObject
@@ -32,6 +34,7 @@ diff --git a/src/Cache_p.h b/src/Cache_p.h
      Cache(const QString &userId, QObject *parent = nullptr);
      ~Cache() noexcept;
 diff --git a/src/ChatPage.h b/src/ChatPage.h
+index d89457d..6a5f9d9 100644
 --- a/src/ChatPage.h
 +++ b/src/ChatPage.h
 @@ -220,4 +220,6 @@ private:
