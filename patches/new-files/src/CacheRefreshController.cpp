@@ -94,7 +94,6 @@ beeperFakeDmCounterpartMxid(const std::map<std::string, MemberInfo> &members,
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-static constexpr int MAX_ROOMS_TO_REFRESH     = 1000;
 static constexpr int BATCH_SIZE               = 50;
 static constexpr int RATE_LIMIT_DELAY_MS      = 200;
 static constexpr int PROFILE_TIMEOUT_MS       = 30000; // 30s per profile
@@ -323,8 +322,8 @@ CacheRefreshWorker::process()
         return a.last_activity > b.last_activity;
     });
 
-    // Take only the top N.
-    int totalToProcess = std::min(static_cast<int>(entries.size()), MAX_ROOMS_TO_REFRESH);
+    // Process ALL rooms (no artificial limit).
+    int totalToProcess = static_cast<int>(entries.size());
     if (totalToProcess == 0) {
         emit finished(true, QStringLiteral("All rooms processed."));
         return;

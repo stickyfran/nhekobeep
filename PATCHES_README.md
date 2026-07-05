@@ -143,7 +143,7 @@ QML Button → CacheRefreshController::startCacheRefresh()
                 ↓
     1. Read all rooms from LMDB, sort by activity
     2. Detect Beeper bridge rooms (3 members, @*bot*:beeper.*)
-    3. Process top 1000 rooms in batches of 50
+    3. Process ALL rooms in batches of 50 (no artificial limit)
     4. Per batch: fetch profiles (HTTP), update LMDB, download avatars
     5. 200ms delay between batches to avoid rate limiting
                 ↓

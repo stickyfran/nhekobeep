@@ -6,7 +6,7 @@
 
 ## Overview
 
-This feature adds a "Force Cache Sync" mechanism to Nheko that refreshes display names and downloads avatars for the last 1000 active chats. This is needed when a Nheko instance was initialized with an older build and doesn't have up-to-date profile data cached.
+This feature adds a "Force Cache Sync" mechanism to Nheko that refreshes display names and downloads avatars for **all** active chats (no artificial room limit). This is needed when a Nheko instance was initialized with an older build and doesn't have up-to-date profile data cached.
 
 ## Architecture Diagram
 
@@ -31,7 +31,7 @@ sequenceDiagram
 
     Worker->>LMDB: cache::joinedRooms()
     LMDB-->>Worker: vector room_ids
-    Worker->>Worker: Sort by approximate_last_modification_ts, take top 1000
+    Worker->>Worker: Sort by approximate_last_modification_ts, process all rooms
 
     loop For each room batch of 50
         Worker->>HTTP: get_profile(member_id) for each member
@@ -108,7 +108,7 @@ MxcImageProvider::download(mxcId, QSize(128, 128),
 
 ### 3. Room Sorting Strategy
 
-Retrieve joined rooms via [`cache::joinedRooms()`](nheko/src/Cache.h:60), get [`RoomInfo`](nheko/src/CacheStructs.h:70) for each (which includes `approximate_last_modification_ts`), sort descending by timestamp, and take the top 1000.
+Retrieve joined rooms via [`cache::joinedRooms()`](nheko/src/Cache.h:60), get [`RoomInfo`](nheko/src/CacheStructs.h:70) for each (which includes `approximate_last_modification_ts`), sort descending by timestamp, and process all rooms (no artificial limit).
 
 ### 4. QML Overlay Design
 
