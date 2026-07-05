@@ -16,7 +16,8 @@
 
 #include <mtx/responses/profile.hpp>
 #include <mtxclient/http/client.hpp>
-#include <mtx/events/state.hpp>
+#include <mtx/events.hpp>
+#include <mtx/events/collections.hpp>
 
 #include "Cache_p.h"
 #include "CacheStructs.h"
