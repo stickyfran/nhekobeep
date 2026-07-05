@@ -16,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <mtx/responses/messages.hpp>
 #include <mtx/responses/profile.hpp>
 #include <mtx/responses/sync.hpp>
 #include <mtxclient/http/client.hpp>
@@ -92,61 +93,6 @@ BeeperReinitController::startBeeperReinit()
 
     emit reinitStarted();
     workerThread_.start();
-}
-
-// ---------------------------------------------------------------------------
-// Helper: fetch a single profile synchronously using a nested event loop
-// ---------------------------------------------------------------------------
-static bool
-fetchProfileSync(const std::string &mxid,
-                 std::string &outName,
-                 std::string &outAvatarUrl,
-                 int timeoutMs,
-                 const QAtomicInt *cancelFlag)
-{
-    std::atomic<bool> done{false};
-    std::atomic<bool> success{false};
-    std::string name, avatar;
-
-    http::client()->get_profile(
-      mxid,
-      [&done, &success, &name, &avatar, &mxid](const mtx::responses::Profile &res,
-                                                mtx::http::RequestErr err) {
-          if (!err) {
-              name   = res.display_name;
-              avatar = res.avatar_url;
-              success.store(true, std::memory_order_release);
-          } else {
-              nhlog::net()->warn("BeeperReinit: get_profile failed for {}: {}",
-                                 mxid,
-                                 err->matrix_error.error);
-          }
-          done.store(true, std::memory_order_release);
-      });
-
-    QEventLoop loop;
-    QTimer timer;
-    timer.setSingleShot(true);
-    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(timeoutMs);
-
-    constexpr int POLL_INTERVAL = 50;
-    while (!done.load(std::memory_order_acquire) && !cancelFlag->loadRelaxed()) {
-        QTimer::singleShot(POLL_INTERVAL, &loop, &QEventLoop::quit);
-        loop.exec();
-        if (!timer.isActive()) {
-            nhlog::net()->warn("BeeperReinit: profile fetch timed out for {}", mxid);
-            break;
-        }
-    }
-
-    timer.stop();
-
-    if (success.load(std::memory_order_acquire)) {
-        outName      = std::move(name);
-        outAvatarUrl = std::move(avatar);
-    }
-    return success.load(std::memory_order_acquire);
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +318,9 @@ BeeperReinitWorker::process()
         emit phaseChanged(QStringLiteral("Fetching recent messages..."));
         nhlog::ui()->info("BeeperReinit: Phase 3b/6 — Fetching extra timeline messages.");
 
-        auto roomIds = cache->getRoomIds(
-          lmdb::txn::begin(cache->env(), nullptr, MDB_RDONLY));
+        auto txn     = lmdb::txn::begin(cache->env(), nullptr, MDB_RDONLY);
+        auto roomIds = cache->getRoomIds(txn);
+        txn.abort();
 
         // Process rooms in batches to avoid flooding the server.
         constexpr int MESSAGES_BATCH_SIZE = 10;
@@ -394,14 +341,13 @@ BeeperReinitWorker::process()
                 std::atomic<bool> msgOk{false};
 
                 // Fetch the most recent 100 messages for this room.
-                // We use a limit of 100 and filter to return only messages
-                // (not state events) for efficiency.
+                mtx::http::MessagesOpts opts;
+                opts.room_id = roomId;
+                opts.dir     = mtx::http::PaginationDirection::Backwards;
+                opts.limit   = 100;
+
                 http::client()->messages(
-                  roomId,
-                  "",    // from (empty = latest)
-                  "",    // to
-                  mtx::http::Direction::Backward,
-                  100,   // limit
+                  opts,
                   [&msgDone, &msgOk, &roomId](const mtx::responses::Messages &msgs,
                                               mtx::http::RequestErr err) {
                       if (!err) {
@@ -474,7 +420,6 @@ BeeperReinitWorker::process()
 
         int totalRooms  = static_cast<int>(allRoomIds.size());
         int processed   = 0;
-        int avatarCount = 0;
 
         // Collect avatar URLs to download.
         struct AvatarEntry
