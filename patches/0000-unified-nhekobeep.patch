@@ -186,7 +186,7 @@ index db4f2cb..3a92803 100644
                      text: qsTr("Create new tag...")
  
 diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
-index 8f51e66..f5f7e33 100644
+index 8f51e66..cfbf529 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
 +++ b/resources/qml/pages/UserSettingsPage.qml
 @@ -252,6 +252,38 @@ Rectangle {
@@ -195,7 +195,7 @@ index 8f51e66..f5f7e33 100644
  
 +                        // --- Patch action buttons ---
 +                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ForceCacheSync
++                            roleValue: UserSettingsModel.ForceCacheSyncAction
 +                            Button {
 +                                text: qsTr("FORCE SYNC")
 +                                enabled: !CacheRefreshController.inProgress
@@ -205,7 +205,7 @@ index 8f51e66..f5f7e33 100644
 +                            }
 +                        }
 +                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ForceReinit
++                            roleValue: UserSettingsModel.ForceReinitAction
 +                            Button {
 +                                text: qsTr("RE-INITIALIZE")
 +                                onClicked: {
@@ -214,7 +214,7 @@ index 8f51e66..f5f7e33 100644
 +                            }
 +                        }
 +                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ManageCustomLabels
++                            roleValue: UserSettingsModel.ManageCustomLabelsAction
 +                            Button {
 +                                text: qsTr("MANAGE")
 +                                onClicked: {
@@ -719,7 +719,7 @@ index ba4c4dd..3fd37ea 100644
              QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
                                   "/media_cache",
 diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
-index db3bf7f..64d4d9d 100644
+index db3bf7f..e618c9e 100644
 --- a/src/UserSettingsPage.cpp
 +++ b/src/UserSettingsPage.cpp
 @@ -172,6 +172,8 @@ UserSettings::load(std::optional<QString> profile)
@@ -1006,16 +1006,16 @@ index db3bf7f..64d4d9d 100644
 +        case PatchesSection:
 +            return SectionTitle;
 +        case ForceCacheSync:
-+            return ForceCacheSync;
++            return ForceCacheSyncAction;
 +        case ForceReinit:
-+            return ForceReinit;
++            return ForceReinitAction;
 +        case ManageCustomLabels:
-+            return ManageCustomLabels;
++            return ManageCustomLabelsAction;
          }
      } else if (role == ValueLowerBound) {
          switch (index.row()) {
 diff --git a/src/UserSettingsPage.h b/src/UserSettingsPage.h
-index c1c198d..512ccf3 100644
+index c1c198d..01fe8b9 100644
 --- a/src/UserSettingsPage.h
 +++ b/src/UserSettingsPage.h
 @@ -12,6 +12,19 @@
@@ -1135,9 +1135,9 @@ index c1c198d..512ccf3 100644
          XSignKeysRequestDownload,
          ConfigureHiddenEvents,
          ManageIgnoredUsers,
-+        ForceCacheSync,
-+        ForceReinit,
-+        ManageCustomLabels,
++        ForceCacheSyncAction,
++        ForceReinitAction,
++        ManageCustomLabelsAction,
      };
      Q_ENUM(Types);
  
