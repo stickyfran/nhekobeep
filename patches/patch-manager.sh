@@ -96,6 +96,32 @@ apply_patches() {
         fi
     done
 
+    # Apply patch files (before QML direct patches, so context matches originals)
+    for f in "${PATCH_FILES[@]}"; do
+        local pf="$SCRIPT_DIR/$f"
+        if [[ ! -f "$pf" ]]; then
+            warn "  Patch $f not found, skipping"
+            continue
+        fi
+        info "Applying $f..."
+
+        # Strip CRLF → LF (Windows line endings break git apply on Linux)
+        local tmpf
+        tmpf=$(mktemp)
+        tr -d '\r' < "$pf" > "$tmpf"
+
+        if git apply "$tmpf" 2>/dev/null; then
+            ok "  $f"
+            rm -f "$tmpf"
+        else
+            local err
+            err=$(git apply --check "$tmpf" 2>&1 || true)
+            rm -f "$tmpf"
+            error "  $f failed: $err"
+            exit 1
+        fi
+    done
+
     # ── Apply QML changes directly (bypass corrupt patch file issues) ──
     local QML="${NHEKO_DIR}/resources/qml/pages/UserSettingsPage.qml"
     if ! grep -q "Force Cache Sync" "$QML" 2>/dev/null; then
@@ -338,31 +364,6 @@ apply_patches() {
         ok "  UserSettingsPage.qml already patched for custom labels"
     fi
 
-    # Apply remaining patch files
-    for f in "${PATCH_FILES[@]}"; do
-        local pf="$SCRIPT_DIR/$f"
-        if [[ ! -f "$pf" ]]; then
-            warn "  Patch $f not found, skipping"
-            continue
-        fi
-        info "Applying $f..."
-
-        # Strip CRLF → LF (Windows line endings break git apply on Linux)
-        local tmpf
-        tmpf=$(mktemp)
-        tr -d '\r' < "$pf" > "$tmpf"
-
-        if git apply "$tmpf" 2>/dev/null; then
-            ok "  $f"
-            rm -f "$tmpf"
-        else
-            local err
-            err=$(git apply --check "$tmpf" 2>&1 || true)
-            rm -f "$tmpf"
-            error "  $f failed: $err"
-            exit 1
-        fi
-    done
 }
 
 # ── 4. Configure cmake with Hunter ──────────────────────────────────────────
