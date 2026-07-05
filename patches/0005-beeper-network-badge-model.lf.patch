@@ -1,0 +1,66 @@
+diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
+--- a/src/timeline/RoomlistModel.h
++++ b/src/timeline/RoomlistModel.h
+@@ -82,5 +82,6 @@
+         IsDirect,
+         DirectChatOtherUserId,
++        BeeperNetworkRole,
+     };
+ 
+     RoomlistModel(TimelineViewManager *parent = nullptr);
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -88,5 +88,6 @@
+       {IsDirect, "isDirect"},
+       {DirectChatOtherUserId, "directChatOtherUserId"},
++      {BeeperNetworkRole, "beeperNetwork"},
+     };
+ }
+@@ -146,3 +147,25 @@
+                 return list;
+             }
++            case Roles::BeeperNetworkRole: {
++                auto info = cache::singleRoomInfo(roomid.toStdString());
++                for (const auto &tag : info.tags) {
++                    // Beeper bridge tag: e.g. com.beeper.network.whatsapp
++                    auto beeperPos = tag.find("beeper.network.");
++                    if (beeperPos != std::string::npos) {
++                        auto suffix = tag.substr(beeperPos + 16);
++                        if (!suffix.empty()) {
++                            auto network = QString::fromStdString(suffix);
++                            network[0] = network[0].toUpper();
++                            return network;
++                        }
++                    }
++                    // mautrix bridge tag: e.g. net.mautrix.telegram
++                    auto mautrixPos = tag.find("mautrix.");
++                    if (mautrixPos != std::string::npos) {
++                        auto suffix = tag.substr(mautrixPos + 8);
++                        if (!suffix.empty()) {
++                            auto network = QString::fromStdString(suffix);
++                            network[0] = network[0].toUpper();
++                            return network;
++                        }
++                    }
++                }
++                return QString();
++            }
+             default:
+@@ -175,3 +187,5 @@
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
+             default:
+@@ -206,3 +220,5 @@
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
+             default:
+@@ -562,3 +578,3 @@
+                 if (auto idx = roomidToIndex(qroomid); idx != -1)
+-                    emit dataChanged(index(idx), index(idx), {Tags});
++                    emit dataChanged(index(idx), index(idx), {Tags, BeeperNetworkRole});
+             }

@@ -1,0 +1,84 @@
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index ce2a8f8..2f121f8 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -87,6 +87,7 @@ RoomlistModel::roleNames() const
+       {ParentSpaces, "parentSpaces"},
+       {IsDirect, "isDirect"},
+       {DirectChatOtherUserId, "directChatOtherUserId"},
++      {BeeperNetworkRole, "beeperNetwork"},
+     };
+ }
+ 
+@@ -145,6 +146,32 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                     list.push_back(QString::fromStdString(t));
+                 return list;
+             }
++            case Roles::BeeperNetworkRole: {
++                auto info = cache::singleRoomInfo(roomid.toStdString());
++                for (const auto &tag : info.tags) {
++                    // Beeper bridge tag: e.g. com.beeper.network.whatsapp
++                    auto beeperPos = tag.find("beeper.network.");
++                    if (beeperPos != std::string::npos) {
++                        auto suffix = tag.substr(beeperPos + 16);
++                        if (!suffix.empty()) {
++                            auto network = QString::fromStdString(suffix);
++                            network[0] = network[0].toUpper();
++                            return network;
++                        }
++                    }
++                    // mautrix bridge tag: e.g. net.mautrix.telegram
++                    auto mautrixPos = tag.find("mautrix.");
++                    if (mautrixPos != std::string::npos) {
++                        auto suffix = tag.substr(mautrixPos + 8);
++                        if (!suffix.empty()) {
++                            auto network = QString::fromStdString(suffix);
++                            network[0] = network[0].toUpper();
++                            return network;
++                        }
++                    }
++                }
++                return QString();
++            }
+             default:
+                 return {};
+             }
+@@ -174,6 +201,8 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return false;
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
+             default:
+                 return {};
+             }
+@@ -205,6 +234,8 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return true;
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
+             default:
+                 return {};
+             }
+@@ -560,7 +591,7 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+             if (std::holds_alternative<
+                   mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
+                 if (auto idx = roomidToIndex(qroomid); idx != -1)
+-                    emit dataChanged(index(idx), index(idx), {Tags});
++                    emit dataChanged(index(idx), index(idx), {Tags, BeeperNetworkRole});
+             }
+         }
+     }
+diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
+index 7dfeb70..aae629d 100644
+--- a/src/timeline/RoomlistModel.h
++++ b/src/timeline/RoomlistModel.h
+@@ -81,6 +81,7 @@ public:
+         ParentSpaces,
+         IsDirect,
+         DirectChatOtherUserId,
++        BeeperNetworkRole,
+     };
+ 
+     RoomlistModel(TimelineViewManager *parent = nullptr);

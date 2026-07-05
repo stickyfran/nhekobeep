@@ -19,6 +19,8 @@ PATCH_FILES=(
     "0001-beeper-bridge-fake-dm-cleanup.patch"
     "0002-cache-refresh-accessors.patch"
     "0003-cache-refresh-cmakelists.patch"
+    "0005-beeper-network-badge-model.patch"
+    "0006-beeper-network-badge-qml.patch"
 )
 
 NEW_FILES=(

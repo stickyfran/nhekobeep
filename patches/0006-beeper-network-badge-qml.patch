@@ -1,0 +1,49 @@
+diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
+index db4f2cb..79be162 100644
+--- a/resources/qml/RoomList.qml
++++ b/resources/qml/RoomList.qml
+@@ -467,6 +467,7 @@ Page {
+             required property string roomId
+             required property string roomName
+             required property var tags
++            required property string beeperNetwork
+             required property string time
+             property color unimportantText: palette.buttonText
+ 
+@@ -602,10 +603,35 @@ Page {
+ 
+                             anchors.left: parent.left
+                             color: roomItem.importantText
+-                            elideWidth: parent.width - (timestamp.visible ? timestamp.implicitWidth : 0) - (spaceNotificationBubble.visible ? spaceNotificationBubble.implicitWidth : 0)
++                            elideWidth: parent.width - (timestamp.visible ? timestamp.implicitWidth : 0) - (beeperBadge.visible ? beeperBadge.width + Nheko.paddingSmall : 0) - (spaceNotificationBubble.visible ? spaceNotificationBubble.implicitWidth : 0)
+                             fullText: TimelineManager.htmlEscape(roomName)
+                             textFormat: Text.RichText
+                         }
++                        // Beeper bridge network badge
++                        Rectangle {
++                            id: beeperBadge
++
++                            anchors.left: titleText.right
++                            anchors.leftMargin: Nheko.paddingSmall
++                            anchors.verticalCenter: titleText.verticalCenter
++                            color: Qt.alpha(palette.highlight, 0.15)
++                            border.color: Qt.alpha(palette.highlight, 0.4)
++                            border.width: 1
++                            height: beeperLabel.implicitHeight + 4
++                            radius: 3
++                            visible: beeperNetwork !== ""
++                            width: beeperLabel.implicitWidth + 8
++
++                            Text {
++                                id: beeperLabel
++
++                                anchors.centerIn: parent
++                                color: palette.highlight
++                                font.bold: true
++                                font.pixelSize: fontMetrics.font.pixelSize * 0.65
++                                text: beeperNetwork
++                            }
++                        }
+                         Label {
+                             id: timestamp
+ 
