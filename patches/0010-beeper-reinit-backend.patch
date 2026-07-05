@@ -27,7 +27,7 @@ diff --git a/src/Cache_p.h b/src/Cache_p.h
      //! Allow CacheRefreshController to perform surgical LMDB updates.
      friend class CacheRefreshController;
 +
-+    friend class BeeperReinitController;
++    friend class BeeperReinitWorker;
  
      //! Return the underlying LMDB environment for direct access.
      lmdb::env &env();
