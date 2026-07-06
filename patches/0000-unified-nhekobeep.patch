@@ -1981,7 +1981,7 @@ index 7dfeb70..2bf9b93 100644
      enum class FilterBy
      {
 diff --git a/src/ui/UserProfile.cpp b/src/ui/UserProfile.cpp
-index d05b6f6..bc2e071 100644
+index d05b6f6..a3404cb 100644
 --- a/src/ui/UserProfile.cpp
 +++ b/src/ui/UserProfile.cpp
 @@ -629,4 +629,42 @@ UserProfile::openGlobalProfile()
@@ -2016,9 +2016,9 @@ index d05b6f6..bc2e071 100644
 +
 +        auto lastMsg = model->lastMessage();
 +        out << "Last activity: "
-+            << (lastMsg.descriptiveTime.isValid()
-+                  ? lastMsg.descriptiveTime.toString("yyyy-MM-dd HH:mm:ss")
-+                  : QLatin1String("unknown"))
++            << (lastMsg.datetime.isValid()
++                  ? lastMsg.datetime.toString("yyyy-MM-dd HH:mm:ss")
++                  : lastMsg.descriptiveTime)
 +            << "\n";
 +        out << lastMsg.body << "\n";
 +    }
