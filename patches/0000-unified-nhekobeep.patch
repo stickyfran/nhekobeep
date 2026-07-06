@@ -26,20 +26,31 @@ index 8122313..0575fe9 100644
      resources/qml/ui/Ripple.qml
      resources/qml/ui/Snackbar.qml
 diff --git a/resources/qml/Avatar.qml b/resources/qml/Avatar.qml
-index 6217d70..04cddcf 100644
+index 6217d70..7f61e2c 100644
 --- a/resources/qml/Avatar.qml
 +++ b/resources/qml/Avatar.qml
-@@ -19,6 +19,9 @@ AbstractButton {
+@@ -18,6 +18,11 @@ AbstractButton {
+     property alias textColor: label.color
      property string url
      property string userid
- 
++    // Outline color for Beeper bridge network (e.g. WhatsApp green)
++    readonly property color networkOutlineColor: (Settings.networkOutline && avatar.userid !== "") ? Rooms.networkColorForMxid(avatar.userid) : "transparent"
++
 +    // Cache the effective pixel size to avoid recalculating on every render frame
 +    property int effectivePixelSize: avatar.height * Screen.devicePixelRatio
-+
+ 
      height: 48
      width: 48
+@@ -27,6 +32,8 @@ AbstractButton {
  
-@@ -41,6 +44,8 @@ AbstractButton {
+         color: palette.alternateBase
+         radius: Settings.avatarCircles ? height / 2 : height / 8
++        border.color: avatar.networkOutlineColor
++        border.width: avatar.networkOutlineColor.a > 0 ? 3 : 0
+     }
+ 
+     Label {
+@@ -41,6 +48,8 @@ AbstractButton {
          textFormat: Text.RichText
          verticalAlignment: Text.AlignVCenter
          visible: img.status != Image.Ready && !Settings.useIdenticon
@@ -48,7 +59,7 @@ index 6217d70..04cddcf 100644
      }
      Image {
          id: identicon
-@@ -48,6 +53,8 @@ AbstractButton {
+@@ -48,6 +57,8 @@ AbstractButton {
          anchors.fill: parent
          source: Settings.useIdenticon ? ("image://jdenticon/" + (avatar.userid !== "" ? avatar.userid : avatar.roomid) + "?radius=" + (Settings.avatarCircles ? 100 : 25)) : ""
          visible: Settings.useIdenticon && img.status != Image.Ready
@@ -57,7 +68,7 @@ index 6217d70..04cddcf 100644
      }
      Image {
          id: img
-@@ -64,16 +71,11 @@ AbstractButton {
+@@ -64,16 +75,11 @@ AbstractButton {
          } else {
              return "";
          }
@@ -79,11 +90,73 @@ index 6217d70..04cddcf 100644
      }
      Rectangle {
          id: onlineIndicator
+@@ -86,7 +92,6 @@ AbstractButton {
+                 return Nheko.theme.unavailable;
+             case "offline":
+             default:
+-                // return "#a82353" don't show anything if offline, since it is confusing, if presence is disabled
+                 return "transparent";
+             }
+         }
+@@ -96,7 +101,7 @@ AbstractButton {
+         color: updatePresence()
+         height: avatar.height / 6
+         radius: Settings.avatarCircles ? height / 2 : height / 8
+-        visible: !!avatar.userid
++        visible: !!avatar.userid && !Settings.networkOutline
+         width: height
+ 
+         Connections {
+diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
+index a134474..96abd05 100644
+--- a/resources/qml/CommunitiesList.qml
++++ b/resources/qml/CommunitiesList.qml
+@@ -230,6 +230,19 @@ Page {
+ 
+                 onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
+             }
++            MenuSeparator {}
++            MenuItem {
++                text: qsTr("Change icon...")
++                onTriggered: {
++                    var dialog = Qt.createComponent("qrc:/resources/qml/dialogs/IconPickerDialog.qml");
++                    if (dialog.status == Component.Ready) {
++                        var win = dialog.createObject(communitySidebar, {
++                            "currentTagId": communityContextMenu.tagId
++                        });
++                        win.show();
++                    }
++                }
++            }
+         }
+     }
+ }
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
-index db4f2cb..3a92803 100644
+index db4f2cb..034af3d 100644
 --- a/resources/qml/RoomList.qml
 +++ b/resources/qml/RoomList.qml
-@@ -442,7 +442,10 @@ Page {
+@@ -227,6 +227,20 @@ Page {
+                 }
+                 Item {
+                 }
++                ImageButton {
++                    id: unreadSortToggle
++
++                    Layout.alignment: Qt.AlignVCenter
++                    Layout.preferredHeight: fontMetrics.lineSpacing * 1.5
++                    Layout.preferredWidth: fontMetrics.lineSpacing * 1.5
++                    ToolTip.delay: Nheko.tooltipDelay
++                    ToolTip.text: Settings.sortUnreadFirst ? qsTr("Unread first: ON") : qsTr("Unread first: OFF")
++                    ToolTip.visible: hovered
++                    image: Settings.sortUnreadFirst ? ":/icons/icons/ui/sort-down.svg" : ":/icons/icons/ui/sort.svg"
++                    visible: !collapsed
++
++                    onClicked: Settings.sortUnreadFirst = !Settings.sortUnreadFirst
++                }
+                 ImageButton {
+                     id: logoutButton
+ 
+@@ -442,7 +456,10 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
@@ -95,7 +168,7 @@ index db4f2cb..3a92803 100644
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
  
-@@ -467,6 +470,8 @@ Page {
+@@ -467,6 +484,8 @@ Page {
              required property string roomId
              required property string roomName
              required property var tags
@@ -104,7 +177,7 @@ index db4f2cb..3a92803 100644
              required property string time
              property color unimportantText: palette.buttonText
  
-@@ -602,10 +607,47 @@ Page {
+@@ -602,10 +621,47 @@ Page {
  
                              anchors.left: parent.left
                              color: roomItem.importantText
@@ -153,7 +226,7 @@ index db4f2cb..3a92803 100644
                          Label {
                              id: timestamp
  
-@@ -825,6 +867,31 @@ Page {
+@@ -825,6 +881,31 @@ Page {
                      onObjectAdded: (index, object) => tagsMenu.insertItem(index, object)
                      onObjectRemoved: (index, object) => tagsMenu.removeItem(object)
                  }
@@ -185,6 +258,27 @@ index db4f2cb..3a92803 100644
                  MenuItem {
                      text: qsTr("Create new tag...")
  
+diff --git a/resources/qml/dialogs/UserProfile.qml b/resources/qml/dialogs/UserProfile.qml
+index d2566d4..796ad32 100644
+--- a/resources/qml/dialogs/UserProfile.qml
++++ b/resources/qml/dialogs/UserProfile.qml
+@@ -315,6 +315,16 @@ ApplicationWindow {
+                     ToolTip.text: qsTr("Refresh device list.")
+                     onClicked: profile.refreshDevices()
+                 }
++
++                ImageButton {
++                    Layout.preferredHeight: 24
++                    Layout.preferredWidth: 24
++                    image: ":/icons/icons/ui/download.svg"
++                    hoverEnabled: true
++                    ToolTip.visible: hovered
++                    ToolTip.text: qsTr("Download full chat history.")
++                    onClicked: profile.downloadChatHistory()
++                }
+             }
+ 
+             TabBar {
 diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
 index 8f51e66..cfbf529 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
@@ -455,7 +549,7 @@ index b73b1ad..187c540 100644
 +prewarm(const QVector<QPair<QString, int>> &avatars);
  }
 diff --git a/src/Cache.cpp b/src/Cache.cpp
-index 0f621df..b0b92e0 100644
+index 0f621df..a4a6141 100644
 --- a/src/Cache.cpp
 +++ b/src/Cache.cpp
 @@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
@@ -495,7 +589,21 @@ index 0f621df..b0b92e0 100644
  lmdb::dbi
  Cache::getUserKeysDb(lmdb::txn &txn)
  {
-@@ -3360,6 +3390,79 @@ Cache::invite(std::string_view roomid)
+@@ -2566,8 +2596,12 @@ try {
+             }
+         }
+ 
++        // Only update the modification timestamp from actual message events,
++        // NOT from state events (e.g. avatar/name changes, member joins).
++        // This ensures rooms are sorted chronologically by their last real message,
++        // not by an avatar change or similar state event.
+         for (const auto &e : room.second.timeline.events) {
+-            if (!mtx::accessors::is_message(e))
++            if (!mtx::accessors::is_message(e) || mtx::accessors::is_state_event(e))
+                 continue;
+             updatedInfo.approximate_last_modification_ts = mtx::accessors::origin_server_ts_ms(e);
+         }
+@@ -3360,6 +3394,79 @@ Cache::invite(std::string_view roomid)
      return result;
  }
  
@@ -575,7 +683,7 @@ index 0f621df..b0b92e0 100644
  QString
  Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
  {
-@@ -3382,6 +3485,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
+@@ -3382,6 +3489,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
          }
      }
  
@@ -604,7 +712,7 @@ index 0f621df..b0b92e0 100644
      // We don't use an avatar for group chats.
      if (membersdb.size(txn) > 2)
          return QString();
-@@ -3473,6 +3598,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+@@ -3473,6 +3602,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
      if (total == 1 && !members.empty())
          return QString::fromStdString(members.begin()->second.name);
  
@@ -719,10 +827,25 @@ index ba4c4dd..3fd37ea 100644
              QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
                                   "/media_cache",
 diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
-index db3bf7f..e618c9e 100644
+index db3bf7f..f89ae23 100644
 --- a/src/UserSettingsPage.cpp
 +++ b/src/UserSettingsPage.cpp
-@@ -172,6 +172,8 @@ UserSettings::load(std::optional<QString> profile)
+@@ -92,12 +92,14 @@ UserSettings::load(std::optional<QString> profile)
+     typingNotifications_  = settings.value("user/typing_notifications", true).toBool();
+     sortByImportance_     = settings.value("user/sort_by_unread", true).toBool();
+     sortByAlphabet_       = settings.value("user/sort_by_alphabet", false).toBool();
++    sortUnreadFirst_      = settings.value("user/sort_unread_first", false).toBool();
+     readReceipts_         = settings.value("user/read_receipts", true).toBool();
+     theme_                = settings.value("user/theme", defaultTheme_).toString();
+ 
+     font_ = settings.value("user/font_family", "").toString();
+ 
+     avatarCircles_        = settings.value("user/avatar_circles", true).toBool();
++    networkOutline_       = settings.value("user/network_outline", true).toBool();
+     useIdenticon_         = settings.value("user/use_identicon", true).toBool();
+     openImageExternal_    = settings.value("user/open_image_external", false).toBool();
+     openVideoExternal_    = settings.value("user/open_video_external", false).toBool();
+@@ -172,6 +174,8 @@ UserSettings::load(std::optional<QString> profile)
      disableCertificateValidation_ =
        settings.value("disable_certificate_validation", false).toBool();
  
@@ -731,7 +854,41 @@ index db3bf7f..e618c9e 100644
      applyTheme();
  
      if (profile)
-@@ -1013,6 +1015,228 @@ UserSettings::save()
+@@ -432,6 +436,16 @@ UserSettings::setSortByAlphabet(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setSortUnreadFirst(bool state)
++{
++    if (state == sortUnreadFirst_)
++        return;
++    sortUnreadFirst_ = state;
++    emit sortUnreadFirstChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setButtonsInTimeline(bool state)
+ {
+@@ -500,6 +514,16 @@ UserSettings::setAvatarCircles(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setNetworkOutline(bool state)
++{
++    if (state == networkOutline_)
++        return;
++    networkOutline_ = state;
++    emit networkOutlineChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setDecryptSidebar(bool state)
+ {
+@@ -1013,6 +1037,228 @@ UserSettings::save()
      settings.sync();
  }
  
@@ -960,7 +1117,16 @@ index db3bf7f..e618c9e 100644
  QHash<int, QByteArray>
  UserSettingsModel::roleNames() const
  {
-@@ -1196,6 +1420,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1094,6 +1340,8 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return tr("Alert on notification");
+         case AvatarCircles:
+             return tr("Circular Avatars");
++        case NetworkOutline:
++            return tr("Network outline on avatars");
+         case UseIdenticon:
+             return tr("Use identicons");
+         case OpenImageExternal:
+@@ -1196,6 +1444,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return tr("Periodically update community routing information");
          case ExpireEvents:
              return tr("Periodically delete expired events");
@@ -975,7 +1141,16 @@ index db3bf7f..e618c9e 100644
          }
      } else if (role == Value) {
          switch (index.row()) {
-@@ -1342,6 +1574,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1245,6 +1501,8 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return i->hasAlertOnNotification();
+         case AvatarCircles:
+             return i->avatarCircles();
++        case NetworkOutline:
++            return i->networkOutline();
+         case UseIdenticon:
+             return i->useIdenticon();
+         case OpenImageExternal:
+@@ -1342,6 +1600,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return i->updateSpaceVias();
          case ExpireEvents:
              return i->expireEvents();
@@ -986,7 +1161,16 @@ index db3bf7f..e618c9e 100644
          }
      } else if (role == Description) {
          switch (index.row()) {
-@@ -1543,6 +1779,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1437,6 +1699,8 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+         case AvatarCircles:
+             return tr(
+               "Change the appearance of user avatars in chats.\nOFF - square, ON - circle.");
++        case NetworkOutline:
++            return tr("Show a colored outline on avatars based on the user's bridge network (e.g. WhatsApp green, Telegram blue).");
+         case UseIdenticon:
+             return tr("Display an identicon instead of a letter when no avatar is set.");
+         case OpenImageExternal:
+@@ -1543,6 +1807,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
                        "to have one client running this regularly.");
          case IgnoredUsers:
              return tr("Manage your ignored users.");
@@ -999,7 +1183,15 @@ index db3bf7f..e618c9e 100644
          }
      } else if (role == Type) {
          switch (index.row()) {
-@@ -1633,6 +1875,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1581,6 +1851,7 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+         case DesktopNotifications:
+         case AlertOnNotification:
+         case AvatarCircles:
++        case NetworkOutline:
+         case UseIdenticon:
+         case OpenImageExternal:
+         case OpenVideoExternal:
+@@ -1633,6 +1904,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return ConfigureHiddenEvents;
          case IgnoredUsers:
              return ManageIgnoredUsers;
@@ -1014,8 +1206,32 @@ index db3bf7f..e618c9e 100644
          }
      } else if (role == ValueLowerBound) {
          switch (index.row()) {
+@@ -1928,6 +2207,13 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
+             } else
+                 return false;
+         }
++        case NetworkOutline: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setNetworkOutline(value.toBool());
++                return true;
++            } else
++                return false;
++        }
+         case UseIdenticon: {
+             if (value.userType() == QMetaType::Bool) {
+                 i->setUseIdenticon(value.toBool());
+@@ -2283,6 +2569,9 @@ UserSettingsModel::UserSettingsModel(QObject *p)
+     connect(s.get(), &UserSettings::avatarCirclesChanged, this, [this]() {
+         emit dataChanged(index(AvatarCircles), index(AvatarCircles), {Value});
+     });
++    connect(s.get(), &UserSettings::networkOutlineChanged, this, [this]() {
++        emit dataChanged(index(NetworkOutline), index(NetworkOutline), {Value});
++    });
+     connect(s.get(), &UserSettings::useIdenticonChanged, this, [this]() {
+         emit dataChanged(index(UseIdenticon), index(UseIdenticon), {Value});
+     });
 diff --git a/src/UserSettingsPage.h b/src/UserSettingsPage.h
-index c1c198d..01fe8b9 100644
+index c1c198d..9952190 100644
 --- a/src/UserSettingsPage.h
 +++ b/src/UserSettingsPage.h
 @@ -12,6 +12,19 @@
@@ -1038,7 +1254,25 @@ index c1c198d..01fe8b9 100644
  class UserSettings final : public QObject
  {
      Q_OBJECT
-@@ -123,6 +136,9 @@ class UserSettings final : public QObject
+@@ -41,6 +54,8 @@ class UserSettings final : public QObject
+                  roomSortingChangedImportance)
+     Q_PROPERTY(bool sortByAlphabet READ sortByAlphabet WRITE setSortByAlphabet NOTIFY
+                  roomSortingChangedAlphabetical)
++    Q_PROPERTY(bool sortUnreadFirst READ sortUnreadFirst WRITE setSortUnreadFirst NOTIFY
++                 sortUnreadFirstChanged)
+     Q_PROPERTY(bool buttonsInTimeline READ buttonsInTimeline WRITE setButtonsInTimeline NOTIFY
+                  buttonInTimelineChanged)
+     Q_PROPERTY(bool readReceipts READ readReceipts WRITE setReadReceipts NOTIFY readReceiptsChanged)
+@@ -50,6 +65,8 @@ class UserSettings final : public QObject
+                  NOTIFY alertOnNotificationChanged)
+     Q_PROPERTY(
+       bool avatarCircles READ avatarCircles WRITE setAvatarCircles NOTIFY avatarCirclesChanged)
++    Q_PROPERTY(
++      bool networkOutline READ networkOutline WRITE setNetworkOutline NOTIFY networkOutlineChanged)
+     Q_PROPERTY(
+       bool decryptSidebar READ decryptSidebar WRITE setDecryptSidebar NOTIFY decryptSidebarChanged)
+     Q_PROPERTY(bool decryptNotifications READ decryptNotifications WRITE setDecryptNotifications
+@@ -123,6 +140,9 @@ class UserSettings final : public QObject
                   updateSpaceViasChanged)
      Q_PROPERTY(bool expireEvents READ expireEvents WRITE setExpireEvents NOTIFY expireEventsChanged)
  
@@ -1048,7 +1282,7 @@ index c1c198d..01fe8b9 100644
      UserSettings();
  
  public:
-@@ -130,13 +146,9 @@ public:
+@@ -130,13 +150,9 @@ public:
      static void initialize(std::optional<QString> profile);
      static UserSettings *create(QQmlEngine *qmlEngine, QJSEngine *)
      {
@@ -1062,7 +1296,23 @@ index c1c198d..01fe8b9 100644
          static QJSEngine *s_engine = nullptr;
          if (s_engine)
              Q_ASSERT(qmlEngine == s_engine);
-@@ -247,6 +259,14 @@ public:
+@@ -198,6 +214,7 @@ public:
+     void setTypingNotifications(bool state);
+     void setSortByImportance(bool state);
+     void setSortByAlphabet(bool state);
++    void setSortUnreadFirst(bool state);
+     void setButtonsInTimeline(bool state);
+     void setTimelineMaxWidth(int state);
+     void setCommunityListWidth(int state);
+@@ -205,6 +222,7 @@ public:
+     void setDesktopNotifications(bool state);
+     void setAlertOnNotification(bool state);
+     void setAvatarCircles(bool state);
++    void setNetworkOutline(bool state);
+     void setDecryptSidebar(bool state);
+     void setDecryptNotifications(bool state);
+     void setSpaceNotifications(bool state);
+@@ -247,6 +265,14 @@ public:
      void setUpdateSpaceVias(bool state);
      void setExpireEvents(bool state);
  
@@ -1077,7 +1327,23 @@ index c1c198d..01fe8b9 100644
      QString theme() const { return !theme_.isEmpty() ? theme_ : defaultTheme_; }
      bool messageHoverHighlight() const { return messageHoverHighlight_; }
      bool enlargeEmojiOnlyMessages() const { return enlargeEmojiOnlyMessages_; }
-@@ -287,7 +307,6 @@ public:
+@@ -255,6 +281,7 @@ public:
+     bool groupView() const { return groupView_; }
+     bool scrollbarsInRoomlist() const { return scrollbarsInRoomlist_; }
+     bool avatarCircles() const { return avatarCircles_; }
++    bool networkOutline() const { return networkOutline_; }
+     bool decryptSidebar() const { return decryptSidebar_; }
+     bool decryptNotifications() const { return decryptNotifications_; }
+     bool spaceNotifications() const { return spaceNotifications_; }
+@@ -270,6 +297,7 @@ public:
+     bool typingNotifications() const { return typingNotifications_; }
+     bool sortByImportance() const { return sortByImportance_; }
+     bool sortByAlphabet() const { return sortByAlphabet_; }
++    bool sortUnreadFirst() const { return sortUnreadFirst_; }
+     bool buttonsInTimeline() const { return buttonsInTimeline_; }
+     bool mobileMode() const { return mobileMode_; }
+     bool disableSwipe() const { return disableSwipe_; }
+@@ -287,7 +315,6 @@ public:
          if (emojiFont_ == QLatin1String("Default")) {
              return tr("Default");
          }
@@ -1085,7 +1351,23 @@ index c1c198d..01fe8b9 100644
          return emojiFont_;
      }
      Presence presence() const { return presence_; }
-@@ -385,6 +404,7 @@ signals:
+@@ -330,6 +357,7 @@ signals:
+     void scrollbarsInRoomlistChanged(bool state);
+     void roomSortingChangedImportance(bool state);
+     void roomSortingChangedAlphabetical(bool state);
++    void sortUnreadFirstChanged(bool state);
+     void themeChanged(QString state);
+     void messageHoverHighlightChanged(bool state);
+     void enlargeEmojiOnlyMessagesChanged(bool state);
+@@ -346,6 +374,7 @@ signals:
+     void desktopNotificationsChanged(bool state);
+     void alertOnNotificationChanged(bool state);
+     void avatarCirclesChanged(bool state);
++    void networkOutlineChanged(bool state);
+     void decryptSidebarChanged(bool state);
+     void decryptNotificationsChanged(bool state);
+     void spaceNotificationsChanged(bool state);
+@@ -385,6 +414,7 @@ signals:
      void useIdenticonChanged(bool state);
      void openImageExternalChanged(bool state);
      void openVideoExternalChanged(bool state);
@@ -1093,7 +1375,7 @@ index c1c198d..01fe8b9 100644
      void hiddenPinsChanged();
      void hiddenWidgetsChanged();
      void recentReactionsChanged();
-@@ -393,7 +413,6 @@ signals:
+@@ -393,7 +423,6 @@ signals:
      void expireEventsChanged(bool state);
  
  private:
@@ -1101,7 +1383,21 @@ index c1c198d..01fe8b9 100644
      QString defaultTheme_ = QProcessEnvironment::systemEnvironment()
                                  .value(QStringLiteral("QT_QPA_PLATFORMTHEME"), QLatin1String(""))
                                  .isEmpty()
-@@ -462,6 +481,9 @@ private:
+@@ -414,11 +443,13 @@ private:
+     bool typingNotifications_;
+     bool sortByImportance_;
+     bool sortByAlphabet_;
++    bool sortUnreadFirst_ = false;
+     bool buttonsInTimeline_;
+     bool readReceipts_;
+     bool hasDesktopNotifications_;
+     bool hasAlertOnNotification_;
+     bool avatarCircles_;
++    bool networkOutline_ = true;
+     bool decryptSidebar_;
+     bool decryptNotifications_;
+     bool spaceNotifications_;
+@@ -462,6 +493,9 @@ private:
      QStringList hiddenWidgets_;
      QStringList recentReactions_;
      QList<QStringList> collapsedSpaces_;
@@ -1111,7 +1407,15 @@ index c1c198d..01fe8b9 100644
      bool useIdenticon_;
      bool openImageExternal_;
      bool openVideoExternal_;
-@@ -564,6 +586,11 @@ class UserSettingsModel : public QAbstractListModel
+@@ -493,6 +527,7 @@ class UserSettingsModel : public QAbstractListModel
+         FontSize,
+         EmojiFont,
+         AvatarCircles,
++        NetworkOutline,
+         UseIdenticon,
+         PrivacyScreen,
+         PrivacyScreenTimeout,
+@@ -564,6 +599,11 @@ class UserSettingsModel : public QAbstractListModel
          DeviceId,
          DeviceFingerprint,
  
@@ -1123,7 +1427,7 @@ index c1c198d..01fe8b9 100644
          LoginInfoSection,
          UserId,
          Homeserver,
-@@ -571,7 +598,6 @@ class UserSettingsModel : public QAbstractListModel
+@@ -571,7 +611,6 @@ class UserSettingsModel : public QAbstractListModel
          Version,
          Platform,
          COUNT,
@@ -1131,7 +1435,7 @@ index c1c198d..01fe8b9 100644
          AccessToken,
  #ifdef Q_OS_MACOS
          ScaleFactor,
-@@ -596,6 +622,9 @@ public:
+@@ -596,6 +635,9 @@ public:
          XSignKeysRequestDownload,
          ConfigureHiddenEvents,
          ManageIgnoredUsers,
@@ -1141,7 +1445,7 @@ index c1c198d..01fe8b9 100644
      };
      Q_ENUM(Types);
  
-@@ -628,3 +657,50 @@ public:
+@@ -628,3 +670,50 @@ public:
      Q_INVOKABLE void requestCrossSigningSecrets();
      Q_INVOKABLE void downloadCrossSigningSecrets();
  };
@@ -1241,7 +1545,7 @@ index a707c10..7124757 100644
              }
          }
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..1a52944 100644
+index ce2a8f8..0cee847 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -1446,7 +1750,7 @@ index ce2a8f8..1a52944 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,6 +945,52 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +945,60 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
@@ -1499,8 +1803,112 @@ index ce2a8f8..1a52944 100644
  namespace {
  enum NotificationImportance : short
  {
+-    NoPreview          = -3,
+-    Preview            = -2,
+-    ImportanceDisabled = -1,
+-    AllEventsRead      = 0,
++    NoPreview          = -4,
++    Preview            = -3,
++    ImportanceDisabled = -2,
++    AllEventsRead      = -1,
++    UnreadFirst        = 0,
+     NewMessage         = 1,
+     NewMentions        = 2,
+     Invite             = 3,
+@@ -862,12 +1026,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+             return NoPreview;
+     } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
+         return Invite;
+-    } else if (!this->sortByImportance) {
++    } else if (!this->sortByImportance && !this->sortUnreadFirst) {
+         return ImportanceDisabled;
+     } else if (sourceModel()->data(idx, RoomlistModel::HasLoudNotification).toBool()) {
+         return NewMentions;
+     } else if (sourceModel()->data(idx, RoomlistModel::NotificationCount).toInt() > 0) {
+         return NewMessage;
++    } else if (this->sortUnreadFirst &&
++               sourceModel()->data(idx, RoomlistModel::HasUnreadMessages).toBool()) {
++        return UnreadFirst;
+     } else {
+         return AllEventsRead;
+     }
+@@ -919,6 +1086,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+ 
+     this->sortByImportance = UserSettings::instance()->sortByImportance();
+     this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
++    this->sortUnreadFirst  = UserSettings::instance()->sortUnreadFirst();
+     setSourceModel(model);
+     setDynamicSortFilter(true);
+ 
+@@ -938,6 +1106,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+                          invalidate();
+                      });
+ 
++    QObject::connect(UserSettings::instance().get(),
++                     &UserSettings::sortUnreadFirstChanged,
++                     this,
++                     [this](bool sortUnreadFirst_) {
++                         this->sortUnreadFirst = sortUnreadFirst_;
++                         invalidate();
++                     });
++
+     connect(roomlistmodel,
+             &RoomlistModel::currentRoomChanged,
+             this,
+@@ -1200,6 +1376,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+     }
+ }
+ 
++QColor
++FilteredRoomlistModel::networkColorForMxid(const QString &mxid) const
++{
++    // Reuse the same beeper prefix lookup logic from the anonymous namespace
++    const auto atPos = mxid.indexOf(QLatin1Char('@'));
++    if (atPos < 0)
++        return {};
++    const auto colonPos = mxid.indexOf(QLatin1Char(':'), atPos + 1);
++    if (colonPos < 0)
++        return {};
++
++    const auto localpart = mxid.mid(atPos + 1, colonPos - atPos - 1);
++
++    // kBeeperPrefixMap logic duplicated inline for access from the method
++    static const QHash<QString, QPair<QString, QColor>> prefixMap = {
++        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x366)}},
++        {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x366)}},
++        {"instagram_",    {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++        {"instagramgo_",  {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++        {"telegram_",     {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++        {"telegramgo_",   {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++        {"signal_",       {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++        {"signalgo_",     {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++        {"discord_",      {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++        {"discordgo_",    {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++        {"facebook_",     {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++        {"facebookgo_",   {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++        {"slack_",        {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++        {"slackgo_",      {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++        {"googlechat_",   {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++        {"googlechatgo_", {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++        {"sms_",          {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++        {"smsgo_",        {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++        {"imessage_",     {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++        {"imessagego_",   {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++    };
++
++    for (auto it = prefixMap.constBegin(); it != prefixMap.constEnd(); ++it) {
++        if (localpart.startsWith(it.key(), Qt::CaseInsensitive))
++            return it.value().second;
++    }
++
++    return {};
++}
++
+ void
+ FilteredRoomlistModel::copyLink(QString roomid)
+ {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..113b8e4 100644
+index 7dfeb70..2bf9b93 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -1556,3 +1964,101 @@ index 7dfeb70..113b8e4 100644
  #ifdef NHEKO_DBUS_SYS
      NhekoDBusBackend *dbusInterface_;
      friend class NhekoDBusBackend;
+@@ -195,6 +213,7 @@ public slots:
+     void leave(QString roomid, QString reason = "") { roomlistmodel->leave(roomid, reason); }
+     void toggleTag(const QString &roomid, const QString &tag, bool on);
+     void copyLink(QString roomid);
++    Q_INVOKABLE QColor networkColorForMxid(const QString &mxid) const;
+ 
+     TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
+     RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
+@@ -248,6 +267,7 @@ private:
+     RoomlistModel *roomlistmodel;
+     bool sortByImportance = true;
+     bool sortByAlphabet   = false;
++    bool sortUnreadFirst  = false;
+ 
+     enum class FilterBy
+     {
+diff --git a/src/ui/UserProfile.cpp b/src/ui/UserProfile.cpp
+index d05b6f6..89f1cb5 100644
+--- a/src/ui/UserProfile.cpp
++++ b/src/ui/UserProfile.cpp
+@@ -629,4 +629,65 @@ UserProfile::openGlobalProfile()
+     emit manager->openGlobalUserProfile(userid_);
+ }
+ 
++void
++UserProfile::downloadChatHistory()
++{
++    // Collect all rooms shared with this user
++    auto joinedRooms = cache::getRoomIds();
++    QStringList sharedRooms;
++    for (const auto &roomId : joinedRooms) {
++        auto qroomId = QString::fromStdString(roomId);
++        auto room    = manager->rooms()->getRoomById(qroomId);
++        if (room) {
++            if (room->directChatOtherUserId() == userid_)
++                sharedRooms.push_back(qroomId);
++        }
++    }
++
++    if (sharedRooms.isEmpty()) {
++        emit displayError(tr("No shared rooms found with this user."));
++        return;
++    }
++
++    QString filePath = QFileDialog::getSaveFileName(
++      nullptr, tr("Save Chat History"), userid_ + "_history.txt", tr("Text Files (*.txt)"));
++
++    if (filePath.isEmpty())
++        return;
++
++    QFile file(filePath);
++    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
++        emit displayError(tr("Could not open file for writing."));
++        return;
++    }
++
++    QTextStream out(&file);
++    out.setEncoding(QStringConverter::Utf8);
++
++    out << "Chat History with " << userid_ << "\n";
++    out << QString("=").repeated(60) << "\n\n";
++
++    for (const auto &roomId : sharedRooms) {
++        auto room = manager->rooms()->getRoomById(roomId);
++        if (!room)
++            continue;
++
++        auto roomName = room->plainRoomName();
++        out << "--- Room: " << roomName << " (" << roomId << ") ---\n\n";
++
++        // Get cached timeline messages (last ~100 events per room)
++        auto eventList = cache::client()->getTimelineMessages(roomId.toStdString(), 100);
++        for (const auto &event : eventList) {
++            auto ts    = mtx::accessors::origin_server_ts(event);
++            auto body  = QString::fromStdString(mtx::accessors::body(event));
++            auto sndr  = QString::fromStdString(mtx::accessors::sender(event));
++            auto localTs = ts.toString("yyyy-MM-dd HH:mm:ss");
++            out << "[" << localTs << "] " << sndr << ": " << body << "\n";
++        }
++        out << "\n";
++    }
++
++    file.close();
++}
++
+ #include "moc_UserProfile.cpp"
+diff --git a/src/ui/UserProfile.h b/src/ui/UserProfile.h
+index b4b73ed..710df04 100644
+--- a/src/ui/UserProfile.h
++++ b/src/ui/UserProfile.h
+@@ -195,6 +195,7 @@ public:
+     Q_INVOKABLE void changeDeviceName(const QString &deviceID, const QString &deviceName);
+     Q_INVOKABLE void changeAvatar();
+     Q_INVOKABLE void openGlobalProfile();
++    Q_INVOKABLE void downloadChatHistory();
+ 
+     void setIgnored(bool ignored);
+     bool ignored() const;
