@@ -1810,7 +1810,7 @@ index a707c10..24ab982 100644
 +
  #include "moc_CommunitiesModel.cpp"
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..12a02ad 100644
+index ce2a8f8..65bf9b1 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -1888,7 +1888,7 @@ index ce2a8f8..12a02ad 100644
 +    // "instagramgo_" vs "instagram_").
 +    for (auto it = kBeeperPrefixMap.constBegin(); it != kBeeperPrefixMap.constEnd(); ++it) {
 +        if (localpart.startsWith(it.key(), Qt::CaseInsensitive))
-+            return {it.value().first, it.value().second};
++            return {it.value().first, it.value().second, QString()};
 +    }
 +
 +    // Fallback: extract text before the first underscore, strip trailing
@@ -1900,11 +1900,11 @@ index ce2a8f8..12a02ad 100644
 +            prefix.chop(2);
 +        if (!prefix.isEmpty()) {
 +            prefix[0] = prefix[0].toUpper();
-+            return {prefix, QColor()};
++            return {prefix, QColor(), QString()};
 +        }
 +    }
 +
-+    return {};
++    return {QString(), QColor(), QString()};
 +}
 +
 +} // namespace
@@ -2263,10 +2263,10 @@ index 7dfeb70..cb63138 100644
      enum class FilterBy
      {
 diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
-index 6233682..dbd2c78 100644
+index 6233682..489b880 100644
 --- a/src/timeline/TimelineModel.cpp
 +++ b/src/timeline/TimelineModel.cpp
-@@ -3424,7 +3424,152 @@ TimelineModel::showImage() const
+@@ -3424,7 +3424,144 @@ TimelineModel::showImage() const
      case UserSettings::ShowImage::Never:
      default:
          return false;
@@ -2313,27 +2313,19 @@ index 6233682..dbd2c78 100644
 +        out << sep << "\n\n";
 +    
 +        int total = 0;
-+        auto range = events.timelineRange();
-+        int totalEvents = range.second >= 0 ? static_cast<int>(range.second + 1) : 0;
++        int totalEvents = events.size();
 +    
-+        for (int i = 0; i <= range.second; ++i) {
-+            const auto &evt = events.at(i);
++        // Iterate from oldest (0) to newest (size()-1)
++        for (int i = 0; i < totalEvents; ++i) {
++            const auto evt = events.get(i);
 +            if (!evt)
 +                continue;
 +    
-+            const auto timestamp =
-+              QString::fromStdString(mtx::accessors::origin_server_ts(*evt)
-+                                       .value_or(std::chrono::system_clock::time_point())
-+                                       .time_since_epoch()
-+                                       .count() > 0
-+                                       ? "???"
-+                                       : "");
 +            const auto sender  = QString::fromStdString(mtx::accessors::sender(*evt));
 +            const auto body    = QString::fromStdString(mtx::accessors::body(*evt));
 +            const auto msgtype = QString::fromStdString(mtx::accessors::msg_type(*evt));
 +    
-+            // Format: [timestamp] Sender: body
-+            out << "[" << timestamp << "] " << sender << ": ";
++            out << sender << ": ";
 +            if (msgtype == QLatin1String("m.text") || msgtype == QLatin1String("m.notice"))
 +                out << body;
 +            else if (msgtype == QLatin1String("m.emote"))
@@ -2368,9 +2360,9 @@ index 6233682..dbd2c78 100644
 +            << "<p>Room: " << roomId().toHtmlEscaped() << "</p>\n"
 +            << "<hr>\n";
 +    
-+        auto range = events.timelineRange();
-+        for (int i = 0; i <= range.second; ++i) {
-+            const auto &evt = events.at(i);
++        int totalEvents = events.size();
++        for (int i = 0; i < totalEvents; ++i) {
++            const auto evt = events.get(i);
 +            if (!evt)
 +                continue;
 +    
@@ -2396,10 +2388,10 @@ index 6233682..dbd2c78 100644
 +        out << "  \"roomId\": " << roomId() << ",\n";
 +        out << "  \"messages\": [\n";
 +    
-+        auto range = events.timelineRange();
++        int totalEvents = events.size();
 +        bool first = true;
-+        for (int i = 0; i <= range.second; ++i) {
-+            const auto &evt = events.at(i);
++        for (int i = 0; i < totalEvents; ++i) {
++            const auto evt = events.get(i);
 +            if (!evt)
 +                continue;
 +    
@@ -2472,17 +2464,17 @@ index 389f34f..627d4f6 100644
  TimelineViewManager::openInviteUsers(QString roomId)
  {
 diff --git a/src/timeline/TimelineViewManager.h b/src/timeline/TimelineViewManager.h
-index b116402..3f08643 100644
+index b116402..875d43d 100644
 --- a/src/timeline/TimelineViewManager.h
 +++ b/src/timeline/TimelineViewManager.h
-@@ -109,6 +109,7 @@ signals:
-     void focusInput();
-     void openRoomMembersDialog(MemberList *members, TimelineModel *room);
-     void openRoomSettingsDialog(RoomSettings *settings);
+@@ -121,6 +121,7 @@ signals:
+     void ignoredUsersChanged(const QVector<QString> &ignoredUsers);
+ 
+ public slots:
 +    void downloadHistoryForRoom(QString roomid);
-     void openInviteUsersDialog(InviteesModel *invitees);
-     void openProfile(UserProfile *profile);
-     void showImagePackSettings(TimelineModel *room, ImagePackListModel *packlist);
+     void updateReadReceipts(const QString &room_id, const std::vector<QString> &event_ids);
+     void receivedSessionKey(const std::string &room_id, const std::string &session_id);
+     void initializeRoomlist();
 diff --git a/src/ui/UserProfile.cpp b/src/ui/UserProfile.cpp
 index d05b6f6..84d7158 100644
 --- a/src/ui/UserProfile.cpp
