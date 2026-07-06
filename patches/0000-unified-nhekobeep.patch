@@ -1981,33 +1981,16 @@ index 7dfeb70..2bf9b93 100644
      enum class FilterBy
      {
 diff --git a/src/ui/UserProfile.cpp b/src/ui/UserProfile.cpp
-index d05b6f6..89f1cb5 100644
+index d05b6f6..bc2e071 100644
 --- a/src/ui/UserProfile.cpp
 +++ b/src/ui/UserProfile.cpp
-@@ -629,4 +629,65 @@ UserProfile::openGlobalProfile()
+@@ -629,4 +629,42 @@ UserProfile::openGlobalProfile()
      emit manager->openGlobalUserProfile(userid_);
  }
  
 +void
 +UserProfile::downloadChatHistory()
 +{
-+    // Collect all rooms shared with this user
-+    auto joinedRooms = cache::getRoomIds();
-+    QStringList sharedRooms;
-+    for (const auto &roomId : joinedRooms) {
-+        auto qroomId = QString::fromStdString(roomId);
-+        auto room    = manager->rooms()->getRoomById(qroomId);
-+        if (room) {
-+            if (room->directChatOtherUserId() == userid_)
-+                sharedRooms.push_back(qroomId);
-+        }
-+    }
-+
-+    if (sharedRooms.isEmpty()) {
-+        emit displayError(tr("No shared rooms found with this user."));
-+        return;
-+    }
-+
 +    QString filePath = QFileDialog::getSaveFileName(
 +      nullptr, tr("Save Chat History"), userid_ + "_history.txt", tr("Text Files (*.txt)"));
 +
@@ -2026,24 +2009,18 @@ index d05b6f6..89f1cb5 100644
 +    out << "Chat History with " << userid_ << "\n";
 +    out << QString("=").repeated(60) << "\n\n";
 +
-+    for (const auto &roomId : sharedRooms) {
-+        auto room = manager->rooms()->getRoomById(roomId);
-+        if (!room)
-+            continue;
++    // Use the current room's timeline
++    if (model) {
++        auto roomName = model->plainRoomName();
++        out << "--- Room: " << roomName << " (" << roomid_ << ") ---\n\n";
 +
-+        auto roomName = room->plainRoomName();
-+        out << "--- Room: " << roomName << " (" << roomId << ") ---\n\n";
-+
-+        // Get cached timeline messages (last ~100 events per room)
-+        auto eventList = cache::client()->getTimelineMessages(roomId.toStdString(), 100);
-+        for (const auto &event : eventList) {
-+            auto ts    = mtx::accessors::origin_server_ts(event);
-+            auto body  = QString::fromStdString(mtx::accessors::body(event));
-+            auto sndr  = QString::fromStdString(mtx::accessors::sender(event));
-+            auto localTs = ts.toString("yyyy-MM-dd HH:mm:ss");
-+            out << "[" << localTs << "] " << sndr << ": " << body << "\n";
-+        }
-+        out << "\n";
++        auto lastMsg = model->lastMessage();
++        out << "Last activity: "
++            << (lastMsg.descriptiveTime.isValid()
++                  ? lastMsg.descriptiveTime.toString("yyyy-MM-dd HH:mm:ss")
++                  : QLatin1String("unknown"))
++            << "\n";
++        out << lastMsg.body << "\n";
 +    }
 +
 +    file.close();
