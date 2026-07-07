@@ -25,6 +25,8 @@
 
 #include "BeeperBridge.h"
 #include "Cache_p.h"
+#include "EventAccessors.h"
+#include "TimelineViewManager.h"
 #include "CacheStructs.h"
 #include "ChatPage.h"
 #include "Logging.h"
@@ -374,6 +376,30 @@ BeeperReinitWorker::process()
                                     "BeeperReinit: failed to save messages for {}: {}",
                                     roomIdCopy, e.what());
                               }
+
+                              // Update the room's approximate_last_modification_ts so
+                              // the FilteredRoomlistModel can sort chronologically
+                              // instead of falling back to alphabetical order (which
+                              // happens when all timestamps are zero after a fresh
+                              // initial sync).
+                              uint64_t maxTs = 0;
+                              for (const auto &ev : msgs.chunk) {
+                                  auto ts = mtx::accessors::origin_server_ts_ms(ev);
+                                  if (ts > maxTs)
+                                      maxTs = ts;
+                              }
+                              if (maxTs > 0) {
+                                  try {
+                                      cache->updateLastMessageTimestamp(roomIdCopy, maxTs);
+                                      nhlog::db()->debug(
+                                        "BeeperReinit: updated timestamp for {} to {}",
+                                        roomIdCopy, maxTs);
+                                  } catch (const lmdb::error &e) {
+                                      nhlog::db()->warn(
+                                        "BeeperReinit: failed to update timestamp for {}: {}",
+                                        roomIdCopy, e.what());
+                                  }
+                              }
                           }
 
                           msgOk.store(true, std::memory_order_release);
@@ -412,6 +438,20 @@ BeeperReinitWorker::process()
             if (i + MESSAGES_BATCH_SIZE < roomIds.size())
                 QThread::msleep(200);
         }
+
+        // Force the room list model to re-read from cache with corrected
+        // timestamps so the UI displays chronologically sorted rooms.
+        // This runs on the main thread via BlockingQueuedConnection so the
+        // worker waits for the model to fully reset before proceeding.
+        nhlog::ui()->info("BeeperReinit: refreshing room list with corrected timestamps...");
+        QMetaObject::invokeMethod(
+          ChatPage::instance(),
+          []() {
+              auto *mgr = ChatPage::instance()->timelineManager();
+              if (mgr)
+                  mgr->initializeRoomlist();
+          },
+          Qt::BlockingQueuedConnection);
     }
 
     if (cancelled_->loadRelaxed()) {

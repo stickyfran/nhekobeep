@@ -41,16 +41,7 @@ index 6217d70..7f61e2c 100644
  
      height: 48
      width: 48
-@@ -27,6 +32,8 @@ AbstractButton {
- 
-         color: palette.alternateBase
-         radius: Settings.avatarCircles ? height / 2 : height / 8
-+        border.color: avatar.networkOutlineColor
-+        border.width: avatar.networkOutlineColor.a > 0 ? 3 : 0
-     }
- 
-     Label {
-@@ -41,6 +48,8 @@ AbstractButton {
+@@ -41,6 +46,8 @@ AbstractButton {
          textFormat: Text.RichText
          verticalAlignment: Text.AlignVCenter
          visible: img.status != Image.Ready && !Settings.useIdenticon
@@ -59,7 +50,7 @@ index 6217d70..7f61e2c 100644
      }
      Image {
          id: identicon
-@@ -48,6 +57,8 @@ AbstractButton {
+@@ -48,6 +55,8 @@ AbstractButton {
          anchors.fill: parent
          source: Settings.useIdenticon ? ("image://jdenticon/" + (avatar.userid !== "" ? avatar.userid : avatar.roomid) + "?radius=" + (Settings.avatarCircles ? 100 : 25)) : ""
          visible: Settings.useIdenticon && img.status != Image.Ready
@@ -68,7 +59,7 @@ index 6217d70..7f61e2c 100644
      }
      Image {
          id: img
-@@ -64,16 +75,11 @@ AbstractButton {
+@@ -64,16 +73,22 @@ AbstractButton {
          } else {
              return "";
          }
@@ -88,9 +79,20 @@ index 6217d70..7f61e2c 100644
 +
 +        Behavior on opacity { NumberAnimation { duration: 100 } }
      }
++    // Beeper network color outline ring - always rendered on top of the avatar image
++    Rectangle {
++        id: networkOutline
++
++        anchors.fill: parent
++        color: "transparent"
++        enabled: false
++        radius: Settings.avatarCircles ? height / 2 : height / 8
++        border.color: avatar.networkOutlineColor
++        border.width: avatar.networkOutlineColor.a > 0 ? 2 : 0
++    }
      Rectangle {
          id: onlineIndicator
-@@ -86,7 +92,6 @@ AbstractButton {
+@@ -86,7 +101,6 @@ AbstractButton {
                  return Nheko.theme.unavailable;
              case "offline":
              default:
@@ -98,7 +100,7 @@ index 6217d70..7f61e2c 100644
                  return "transparent";
              }
          }
-@@ -96,7 +101,7 @@ AbstractButton {
+@@ -96,7 +110,7 @@ AbstractButton {
          color: updatePresence()
          height: avatar.height / 6
          radius: Settings.avatarCircles ? height / 2 : height / 8

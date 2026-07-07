@@ -1,38 +1,27 @@
-diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index abc1234..def5678 100644
---- a/src/timeline/RoomlistModel.cpp
-+++ b/src/timeline/RoomlistModel.cpp
-@@ -5,6 +5,7 @@
- #include <QClipboard>
- #include <QGuiApplication>
- 
-+#include <algorithm>
- #include "Cache.h"
- #include "Cache_p.h"
- #include "ChatPage.h"
-@@ -629,8 +630,23 @@ RoomlistModel::initializeRooms()
-         roomids.push_back(*id);
-     }
- 
--    for (const auto &id : cache::client()->roomIds())
--        addRoom(id, true);
-+    // Pre-sort rooms by approximate_last_modification_ts descending so that
-+    // the initial room list shows the most recently active rooms first.
-+    // Without this, rooms appear in alphabetical order (LMDB key iteration
-+    // order) and then jump to temporal order as incremental sync updates
-+    // arrive, causing visual churn.
-+    auto roomIdList = cache::client()->roomIds();
-+    std::sort(roomIdList.begin(), roomIdList.end(), [](const QString &a, const QString &b) {
-+        auto infoA = cache::singleRoomInfo(a.toStdString());
-+        auto infoB = cache::singleRoomInfo(b.toStdString());
-+        // Sort descending: rooms with the most recent activity first.
-+        if (infoA.approximate_last_modification_ts != infoB.approximate_last_modification_ts)
-+            return infoA.approximate_last_modification_ts > infoB.approximate_last_modification_ts;
-+        // Tie-break by room name for deterministic ordering.
-+        return infoA.name < infoB.name;
-+    });
-+    for (const auto &id : roomIdList)
-+        addRoom(id, true);
- 
-     nhlog::db()->info("Restored {} rooms from cache", rowCount());
- 
+# patches/0008-room-ordering-presort.patch
+#
+# == SUPERSEDED ==
+#
+# This patch added a std::sort hack to RoomlistModel::initializeRooms()
+# to pre-sort roomIdList by approximate_last_modification_ts.
+#
+# REASON FOR SUPERSEDING:
+# The std::sort hack was useless because FilteredRoomlistModel (the proxy
+# model) overrides the underlying list order anyway via its own lessThan()
+# implementation. Worse, the sort happened only once at init time, so any
+# subsequent sync would not maintain the order.
+#
+# FIXED PROPERLY BY:
+# patches/new-files/src/BeeperReinitController.cpp now calls
+# cache->updateLastMessageTimestamp() after each /messages response during
+# Phase 3b of BeeperReinitWorker::process(). This ensures the room's
+# approximate_last_modification_ts is written to the LMDB rooms database
+# with the correct timestamp from the most recent event in the chunk.
+# The FilteredRoomlistModel then sorts chronologically via its lessThan()
+# override, which reads Timestamp from the model (which in turn reads from
+# the cache's room info).
+#
+# After Phase 3b finishes, the worker invokes
+# TimelineViewManager::initializeRoomlist() on the main thread via
+# BlockingQueuedConnection, causing a full beginResetModel/endResetModel
+# cycle so the UI re-reads all corrected timestamps.
