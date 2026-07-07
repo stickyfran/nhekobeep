@@ -1,0 +1,116 @@
+# patches/0012-add-room-to-space.patch
+#
+# Add "Add to Space..." submenu to room context menu
+#
+# Allows assigning or removing existing rooms to/from custom Spaces
+# from the room right-click context menu in the room list.
+#
+# == Changes ==
+#
+# 1. CommunitiesModel.h
+#    - Add allSpacesForRoom(roomId) Q_INVOKABLE that returns a flat list
+#      of ALL known spaces with child-validity info for the given room.
+#
+# 2. CommunitiesModel.cpp
+#    - Implement allSpacesForRoom(): iterate spaces_, check each via
+#      cache lookup for m.space.child state event, return SpaceItem list.
+#
+# 3. RoomList.qml
+#    - Add an "Add to Space..." submenu to roomContextMenu.
+#    - Dynamically lists all spaces from Communities.allSpacesForRoom().
+#    - Shows a checkmark if the room is already a child of that space.
+#    - Toggling calls Communities.updateSpaceStatus() to add or remove.
+#
+# == Usage ==
+#
+#   Right-click any room -> "Add to Space..." -> toggle spaces on/off.
+#
+# == Dependencies ==
+#
+# Applies on top of pristine nheko master.
+
+diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
+index 4636524..1e8b3f4 100644
+--- a/src/timeline/CommunitiesModel.h
++++ b/src/timeline/CommunitiesModel.h
+@@ -196,5 +196,6 @@ public:
+     Q_INVOKABLE void updateSpaceStatus(QString space,
+                                        QString room,
+                                        bool setParent,
+                                        bool setChild,
+                                        bool canonical) const;
++    Q_INVOKABLE QVariantList allSpacesForRoom(QString roomId) const;
+
+ public slots:
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index 62689be..e2c4a5d 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -937,2 +937,31 @@ CommunitiesModel::updateSpaceStatus(QString space,
+ }
+
++QVariantList
++CommunitiesModel::allSpacesForRoom(QString roomId) const
++{
++    QVariantList ret;
++    auto room_ = roomId.toStdString();
++
++    for (const auto &[id, info] : spaces_) {
++        auto spaceId = id.toStdString();
++
++        auto child =
++          cache::client()->getStateEvent<mtx::events::state::space::Child>(spaceId, room_);
++        bool childValid =
++          child && !child->content.via.value_or(std::vector<std::string>{}).empty();
++
++        bool canEdit = Permissions(id).canChange(qml_mtx_events::SpaceChild);
++
++        ret.push_back(QVariant::fromValue(SpaceItem(id,
++                                                     QString::fromStdString(info.name),
++                                                     -1,
++                                                     childValid,
++                                                     false,
++                                                     false,
++                                                     canEdit,
++                                                     false)));
++    }
++
++    return ret;
++}
++
+ #include "moc_CommunitiesModel.cpp"
+diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
+index 9eccab2..a1d4da4 100644
+--- a/resources/qml/RoomList.qml
++++ b/resources/qml/RoomList.qml
+@@ -838,2 +838,30 @@ Page {
+             }
++            Menu {
++                id: addToSpaceMenu
++
++                title: qsTr("Add to Space...")
++
++                Instantiator {
++                    model: Communities.allSpacesForRoom(roomContextMenu.roomid)
++
++                    delegate: MenuItem {
++                        required property var modelData
++
++                        checkable: true
++                        checked: modelData.childValid
++                        text: modelData.name
++                        enabled: modelData.canEditChild
++
++                        onTriggered: {
++                            if (checked)
++                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, true, true, false);
++                            else
++                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, false, false, false);
++                        }
++                    }
++
++                    onObjectAdded: (index, object) => addToSpaceMenu.insertItem(index, object)
++                    onObjectRemoved: (index, object) => addToSpaceMenu.removeItem(object)
++                }
++            }
+         }

@@ -1,0 +1,36 @@
+# patches/0013-sort-filter-state-events.patch
+#
+# PURPOSE:
+# Ensure approximate_last_modification_ts is ONLY updated from actual
+# user messages, NOT from state events (avatar changes, topic edits,
+# member joins/leaves, etc.). State events are still saved and rendered
+# in the timeline, but they must never bump a room's sorting position.
+#
+# See also: patches/new-files/src/BeeperReinitController.cpp (the
+# timestamp-finding loop in Phase 3b applies the identical filter).
+#
+# === Cache.cpp (saveState) ===
+#
+# The loop that walks timeline events to pick the highest timestamp
+# now also skips state events explicitly. Without this extra guard,
+# state events that happen to satisfy is_message() (rare edge cases)
+# could still influence the sort key.
+#
+diff --git a/src/Cache.cpp b/src/Cache.cpp
+index abcdef1..abcdef2 100644
+--- a/src/Cache.cpp
++++ b/src/Cache.cpp
+@@ -2566,8 +2566,12 @@ try {
+             }
+         }
+ 
++        // Only update the modification timestamp from actual message events,
++        // NOT from state events (e.g. avatar/name changes, member joins).
++        // This ensures rooms are sorted chronologically by their last real message,
++        // not by an avatar change or similar state event.
+         for (const auto &e : room.second.timeline.events) {
+-            if (!mtx::accessors::is_message(e))
++            if (!mtx::accessors::is_message(e) || mtx::accessors::is_state_event(e))
+                 continue;
+             updatedInfo.approximate_last_modification_ts = mtx::accessors::origin_server_ts_ms(e);
+         }

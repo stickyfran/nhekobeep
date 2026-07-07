@@ -382,8 +382,14 @@ BeeperReinitWorker::process()
                               // instead of falling back to alphabetical order (which
                               // happens when all timestamps are zero after a fresh
                               // initial sync).
+                              // Only consider actual message events (not state events)
+                              // when computing the room's sorting timestamp, to keep
+                              // the Inbox in true chronological message order.
                               uint64_t maxTs = 0;
                               for (const auto &ev : msgs.chunk) {
+                                  if (!mtx::accessors::is_message(ev) ||
+                                      mtx::accessors::is_state_event(ev))
+                                      continue;
                                   auto ts = mtx::accessors::origin_server_ts_ms(ev);
                                   if (ts > maxTs)
                                       maxTs = ts;
