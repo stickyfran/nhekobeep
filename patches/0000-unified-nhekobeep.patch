@@ -479,37 +479,6 @@ index 8f51e66..fb501a7 100644
 +                            }
 +                        }
 +
-+                        // --- Patch action buttons ---
-+                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ForceCacheSyncAction
-+                            Button {
-+                                text: qsTr("FORCE SYNC")
-+                                enabled: !CacheRefreshController.inProgress
-+                                onClicked: {
-+                                    CacheRefreshController.startCacheRefresh();
-+                                }
-+                            }
-+                        }
-+                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ForceReinitAction
-+                            Button {
-+                                text: qsTr("RE-INITIALIZE")
-+                                onClicked: {
-+                                    confirmReinitDialog.open();
-+                                }
-+                            }
-+                        }
-+                        DelegateChoice {
-+                            roleValue: UserSettingsModel.ManageCustomLabelsAction
-+                            Button {
-+                                text: qsTr("MANAGE")
-+                                onClicked: {
-+                                    var dialog = customLabelsDialogComponent.createObject();
-+                                    dialog.show();
-+                                    destroyOnClose(dialog);
-+                                }
-+                            }
-+                        }
 +
                          DelegateChoice {
                              Text {
@@ -518,161 +487,6 @@ index 8f51e66..fb501a7 100644
          }
      }
  
-+    // --- Confirmation dialog for Force Re-Init (referenced from DelegateChooser) ---
-+    Dialog {
-+        id: confirmReinitDialog
-+        title: qsTr("Confirm Full Re-Init")
-+        standardButtons: Dialog.Ok | Dialog.Cancel
-+        modal: true
-+        anchors.centerIn: parent
-+
-+        ColumnLayout {
-+            spacing: Nheko.paddingMedium
-+            width: parent ? parent.width : 400
-+
-+            Label {
-+                text: qsTr("Are you sure you want to perform a full Beeper re-initialization?")
-+                font.bold: true
-+                color: Nheko.theme.error
-+                wrapMode: Text.WordWrap
-+                Layout.fillWidth: true
-+            }
-+
-+            Label {
-+                text: qsTr("This will:\n\u2022 Delete all cached room data\n\u2022 Re-download all chat history\n\u2022 Re-fetch all avatars\n\nThe process may take several minutes.")
-+                wrapMode: Text.WordWrap
-+                Layout.fillWidth: true
-+            }
-+        }
-+
-+        onAccepted: {
-+            BeeperReinitController.startBeeperReinit();
-+        }
-+    }
-+
-+    // --- Custom Labels management dialog (referenced from DelegateChooser) ---
-+    Component {
-+        id: customLabelsDialogComponent
-+
-+        Dialog {
-+            id: customLabelsDialog
-+            title: qsTr("Manage Custom Labels")
-+            standardButtons: Dialog.Close
-+            modal: true
-+            anchors.centerIn: parent
-+            width: Math.min(500, parent ? parent.width * 0.9 : 500)
-+
-+            ColumnLayout {
-+                spacing: Nheko.paddingMedium
-+                width: parent ? parent.width - Nheko.paddingLarge * 2 : 460
-+
-+                Label {
-+                    text: qsTr("Define custom names and icons for tags.")
-+                    wrapMode: Text.WordWrap
-+                    Layout.fillWidth: true
-+                }
-+
-+                ColumnLayout {
-+                    id: customLabelsContainer
-+                    objectName: "CustomBeeperLabels"
-+                    Layout.fillWidth: true
-+                    spacing: Nheko.paddingSmall
-+
-+                    Repeater {
-+                        model: CustomLabelListModel
-+
-+                        delegate: RowLayout {
-+                            Layout.fillWidth: true
-+                            spacing: Nheko.paddingSmall
-+
-+                            TextField {
-+                                Layout.fillWidth: true
-+                                text: model.displayName
-+                                placeholderText: qsTr("Display Name")
-+                                onTextChanged: CustomLabelListModel.updateLabel(
-+                                    index, model.tag, text, model.iconKey)
-+                            }
-+
-+                            ComboBox {
-+                                id: iconCombo
-+                                Layout.preferredWidth: 120
-+                                model: CustomLabelListModel.availableIcons()
-+                                currentIndex: {
-+                                    var icons = CustomLabelListModel.availableIcons();
-+                                    return Math.max(0, icons.indexOf(model.iconKey));
-+                                }
-+                                onCurrentIndexChanged: {
-+                                    if (currentIndex >= 0) {
-+                                        var icons = CustomLabelListModel.availableIcons();
-+                                        CustomLabelListModel.updateLabel(
-+                                            index, model.tag, model.displayName,
-+                                            icons[currentIndex]);
-+                                    }
-+                                }
-+                            }
-+
-+                            Label {
-+                                text: model.tag
-+                                color: palette.buttonText
-+                                font.pixelSize: fontMetrics.font.pixelSize * 0.85
-+                                Layout.preferredWidth: 80
-+                                elide: Text.ElideRight
-+                            }
-+
-+                            ImageButton {
-+                                Layout.preferredWidth: 22
-+                                Layout.preferredHeight: 22
-+                                image: ":/icons/icons/ui/delete.svg"
-+                                ToolTip.text: qsTr("Remove label")
-+                                ToolTip.visible: hovered
-+                                hoverEnabled: true
-+                                onClicked: CustomLabelListModel.removeLabel(index)
-+                            }
-+                        }
-+                    }
-+
-+                    Button {
-+                        text: qsTr("Add Custom Label")
-+                        Layout.alignment: Qt.AlignLeft
-+                        onClicked: addCustomLabelDialog.open()
-+                    }
-+                }
-+            }
-+
-+            Dialog {
-+                id: addCustomLabelDialog
-+                title: qsTr("Add Custom Label")
-+                standardButtons: Dialog.Ok | Dialog.Cancel
-+                modal: true
-+                anchors.centerIn: parent
-+
-+                ColumnLayout {
-+                    spacing: Nheko.paddingMedium
-+                    Label { text: qsTr("Tag:") }
-+                    TextField {
-+                        id: newTagField
-+                        placeholderText: "u.mylabel"
-+                        Layout.fillWidth: true
-+                    }
-+                    Label { text: qsTr("Display Name:") }
-+                    TextField {
-+                        id: newNameField
-+                        placeholderText: qsTr("My Label")
-+                        Layout.fillWidth: true
-+                    }
-+                }
-+
-+                onAccepted: {
-+                    if (newTagField.text && newNameField.text) {
-+                        CustomLabelListModel.addLabel(
-+                            newTagField.text, newNameField.text,
-+                            ":/icons/icons/ui/tag.svg");
-+                    }
-+                }
-+            }
-+        }
-+    }
-+
 +    // --- Confirmation dialog for Force Re-Init (referenced from DelegateChooser) ---
 +    Dialog {
 +        id: confirmReinitDialog
@@ -1056,28 +870,6 @@ index 0f621df..ba1d1b9 100644
 +        }
 +    }
 +
-+    // Beeper "fake DM": prefer the real contact's individual avatar over
-+    // the (usually empty) group avatar Nheko would otherwise compose.
-+    if (membersdb.size(txn) == 3) {
-+        std::map<std::string, MemberInfo> members;
-+        auto bcursor = lmdb::cursor::open(txn, membersdb);
-+        std::string_view buser_id, bmember_data;
-+        while (bcursor.get(buser_id, bmember_data, MDB_NEXT)) {
-+            try {
-+                members.emplace(buser_id,
-+                                nlohmann::json::parse(bmember_data).get<MemberInfo>());
-+            } catch (const nlohmann::json::exception &e) {
-+                nhlog::db()->warn("failed to parse member info: {}", e.what());
-+            }
-+        }
-+        bcursor.close();
-+
-+        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
-+            if (!cp->avatar_url.empty())
-+                return QString::fromStdString(cp->avatar_url);
-+        }
-+    }
-+
      // We don't use an avatar for group chats.
      if (membersdb.size(txn) > 2)
          return QString();
@@ -1283,16 +1075,6 @@ index db3bf7f..f607fba 100644
 +    save();
 +}
 +
-+void
-+UserSettings::setSortUnreadFirst(bool state)
-+{
-+    if (state == sortUnreadFirst_)
-+        return;
-+    sortUnreadFirst_ = state;
-+    emit sortUnreadFirstChanged(state);
-+    save();
-+}
-+
  void
  UserSettings::setButtonsInTimeline(bool state)
  {
@@ -1300,26 +1082,6 @@ index db3bf7f..f607fba 100644
      save();
  }
  
-+void
-+UserSettings::setNetworkOutline(bool state)
-+{
-+    if (state == networkOutline_)
-+        return;
-+    networkOutline_ = state;
-+    emit networkOutlineChanged(state);
-+    save();
-+}
-+
-+void
-+UserSettings::setBeeperNetworkBadge(bool state)
-+{
-+    if (state == beeperNetworkBadge_)
-+        return;
-+    beeperNetworkBadge_ = state;
-+    emit beeperNetworkBadgeChanged(state);
-+    save();
-+}
-+
 +void
 +UserSettings::setNetworkOutline(bool state)
 +{
@@ -1676,20 +1438,6 @@ index db3bf7f..f607fba 100644
 +            } else
 +                return false;
 +        }
-+        case NetworkOutline: {
-+            if (value.userType() == QMetaType::Bool) {
-+                i->setNetworkOutline(value.toBool());
-+                return true;
-+            } else
-+                return false;
-+        }
-+        case BeeperNetworkBadge: {
-+            if (value.userType() == QMetaType::Bool) {
-+                i->setBeeperNetworkBadge(value.toBool());
-+                return true;
-+            } else
-+                return false;
-+        }
          case UseIdenticon: {
              if (value.userType() == QMetaType::Bool) {
                  i->setUseIdenticon(value.toBool());
@@ -1997,6 +1745,12 @@ diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.c
 index a707c10..24ab982 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
+@@ -5,6 +5,7 @@
+ #include "CommunitiesModel.h"
+ 
+ #include <mtx/responses/common.hpp>
++#include <mtx/responses.hpp>
+ #include <set>
 @@ -191,11 +191,19 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
                  return tr("Messages from your server or administrator.");
              }
@@ -2459,14 +2213,6 @@ index ce2a8f8..5e9d49f 100644
 +                         invalidate();
 +                     });
 +
-+    QObject::connect(UserSettings::instance().get(),
-+                     &UserSettings::sortUnreadFirstChanged,
-+                     this,
-+                     [this](bool sortUnreadFirst_) {
-+                         this->sortUnreadFirst = sortUnreadFirst_;
-+                         invalidate();
-+                     });
-+
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
@@ -2601,19 +2347,16 @@ diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
 index 6233682..f046327 100644
 --- a/src/timeline/TimelineModel.cpp
 +++ b/src/timeline/TimelineModel.cpp
-@@ -3424,7 +3424,144 @@ TimelineModel::showImage() const
+@@ -3424,7 +3424,143 @@ TimelineModel::showImage() const
      case UserSettings::ShowImage::Never:
      default:
          return false;
-+        }
      }
--}
--
--#include "moc_TimelineModel.cpp"
-+    
-+    // -----------------------------------------------------------------------
-+    // Chat History Export
-+    // -----------------------------------------------------------------------
+ }
+ 
+ //
+ // Chat History Export
+ //
 +    void
 +    TimelineModel::exportChatHistory(const QString &filePath, const QString &format)
 +    {
