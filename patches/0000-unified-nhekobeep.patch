@@ -440,10 +440,10 @@ index db4f2cb..1bd3745 100644
                      text: qsTr("Create new tag...")
  
 diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
-index 8f51e66..cfbf529 100644
+index 8f51e66..fb501a7 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
 +++ b/resources/qml/pages/UserSettingsPage.qml
-@@ -252,6 +252,38 @@ Rectangle {
+@@ -252,6 +252,70 @@ Rectangle {
                              }
                          }
  
@@ -479,10 +479,42 @@ index 8f51e66..cfbf529 100644
 +                            }
 +                        }
 +
++                        // --- Patch action buttons ---
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceCacheSyncAction
++                            Button {
++                                text: qsTr("FORCE SYNC")
++                                enabled: !CacheRefreshController.inProgress
++                                onClicked: {
++                                    CacheRefreshController.startCacheRefresh();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceReinitAction
++                            Button {
++                                text: qsTr("RE-INITIALIZE")
++                                onClicked: {
++                                    confirmReinitDialog.open();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ManageCustomLabelsAction
++                            Button {
++                                text: qsTr("MANAGE")
++                                onClicked: {
++                                    var dialog = customLabelsDialogComponent.createObject();
++                                    dialog.show();
++                                    destroyOnClose(dialog);
++                                }
++                            }
++                        }
++
                          DelegateChoice {
                              Text {
                                  text: model.value
-@@ -263,6 +295,161 @@ Rectangle {
+@@ -263,6 +327,316 @@ Rectangle {
          }
      }
  
@@ -641,10 +673,165 @@ index 8f51e66..cfbf529 100644
 +        }
 +    }
 +
++    // --- Confirmation dialog for Force Re-Init (referenced from DelegateChooser) ---
++    Dialog {
++        id: confirmReinitDialog
++        title: qsTr("Confirm Full Re-Init")
++        standardButtons: Dialog.Ok | Dialog.Cancel
++        modal: true
++        anchors.centerIn: parent
++
++        ColumnLayout {
++            spacing: Nheko.paddingMedium
++            width: parent ? parent.width : 400
++
++            Label {
++                text: qsTr("Are you sure you want to perform a full Beeper re-initialization?")
++                font.bold: true
++                color: Nheko.theme.error
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++
++            Label {
++                text: qsTr("This will:\n\u2022 Delete all cached room data\n\u2022 Re-download all chat history\n\u2022 Re-fetch all avatars\n\nThe process may take several minutes.")
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++        }
++
++        onAccepted: {
++            BeeperReinitController.startBeeperReinit();
++        }
++    }
++
++    // --- Custom Labels management dialog (referenced from DelegateChooser) ---
++    Component {
++        id: customLabelsDialogComponent
++
++        Dialog {
++            id: customLabelsDialog
++            title: qsTr("Manage Custom Labels")
++            standardButtons: Dialog.Close
++            modal: true
++            anchors.centerIn: parent
++            width: Math.min(500, parent ? parent.width * 0.9 : 500)
++
++            ColumnLayout {
++                spacing: Nheko.paddingMedium
++                width: parent ? parent.width - Nheko.paddingLarge * 2 : 460
++
++                Label {
++                    text: qsTr("Define custom names and icons for tags.")
++                    wrapMode: Text.WordWrap
++                    Layout.fillWidth: true
++                }
++
++                ColumnLayout {
++                    id: customLabelsContainer
++                    objectName: "CustomBeeperLabels"
++                    Layout.fillWidth: true
++                    spacing: Nheko.paddingSmall
++
++                    Repeater {
++                        model: CustomLabelListModel
++
++                        delegate: RowLayout {
++                            Layout.fillWidth: true
++                            spacing: Nheko.paddingSmall
++
++                            TextField {
++                                Layout.fillWidth: true
++                                text: model.displayName
++                                placeholderText: qsTr("Display Name")
++                                onTextChanged: CustomLabelListModel.updateLabel(
++                                    index, model.tag, text, model.iconKey)
++                            }
++
++                            ComboBox {
++                                id: iconCombo
++                                Layout.preferredWidth: 120
++                                model: CustomLabelListModel.availableIcons()
++                                currentIndex: {
++                                    var icons = CustomLabelListModel.availableIcons();
++                                    return Math.max(0, icons.indexOf(model.iconKey));
++                                }
++                                onCurrentIndexChanged: {
++                                    if (currentIndex >= 0) {
++                                        var icons = CustomLabelListModel.availableIcons();
++                                        CustomLabelListModel.updateLabel(
++                                            index, model.tag, model.displayName,
++                                            icons[currentIndex]);
++                                    }
++                                }
++                            }
++
++                            Label {
++                                text: model.tag
++                                color: palette.buttonText
++                                font.pixelSize: fontMetrics.font.pixelSize * 0.85
++                                Layout.preferredWidth: 80
++                                elide: Text.ElideRight
++                            }
++
++                            ImageButton {
++                                Layout.preferredWidth: 22
++                                Layout.preferredHeight: 22
++                                image: ":/icons/icons/ui/delete.svg"
++                                ToolTip.text: qsTr("Remove label")
++                                ToolTip.visible: hovered
++                                hoverEnabled: true
++                                onClicked: CustomLabelListModel.removeLabel(index)
++                            }
++                        }
++                    }
++
++                    Button {
++                        text: qsTr("Add Custom Label")
++                        Layout.alignment: Qt.AlignLeft
++                        onClicked: addCustomLabelDialog.open()
++                    }
++                }
++            }
++
++            Dialog {
++                id: addCustomLabelDialog
++                title: qsTr("Add Custom Label")
++                standardButtons: Dialog.Ok | Dialog.Cancel
++                modal: true
++                anchors.centerIn: parent
++
++                ColumnLayout {
++                    spacing: Nheko.paddingMedium
++                    Label { text: qsTr("Tag:") }
++                    TextField {
++                        id: newTagField
++                        placeholderText: "u.mylabel"
++                        Layout.fillWidth: true
++                    }
++                    Label { text: qsTr("Display Name:") }
++                    TextField {
++                        id: newNameField
++                        placeholderText: qsTr("My Label")
++                        Layout.fillWidth: true
++                    }
++                }
++
++                onAccepted: {
++                    if (newTagField.text && newNameField.text) {
++                        CustomLabelListModel.addLabel(
++                            newTagField.text, newNameField.text,
++                            ":/icons/icons/ui/tag.svg");
++                    }
++                }
++            }
++        }
++    }
++
      ImageButton {
          id: backButton
          anchors.top: parent.top
-@@ -275,5 +462,15 @@ Rectangle {
+@@ -275,5 +649,15 @@ Rectangle {
          ToolTip.text: qsTr("Back")
          onClicked: mainWindow.pop()
      }
@@ -709,7 +896,7 @@ index b73b1ad..187c540 100644
 +prewarm(const QVector<QPair<QString, int>> &avatars);
  }
 diff --git a/src/Cache.cpp b/src/Cache.cpp
-index 0f621df..a4a6141 100644
+index 0f621df..ba1d1b9 100644
 --- a/src/Cache.cpp
 +++ b/src/Cache.cpp
 @@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
@@ -843,7 +1030,7 @@ index 0f621df..a4a6141 100644
  QString
  Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
  {
-@@ -3382,6 +3489,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
+@@ -3382,6 +3489,50 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
          }
      }
  
@@ -869,10 +1056,32 @@ index 0f621df..a4a6141 100644
 +        }
 +    }
 +
++    // Beeper "fake DM": prefer the real contact's individual avatar over
++    // the (usually empty) group avatar Nheko would otherwise compose.
++    if (membersdb.size(txn) == 3) {
++        std::map<std::string, MemberInfo> members;
++        auto bcursor = lmdb::cursor::open(txn, membersdb);
++        std::string_view buser_id, bmember_data;
++        while (bcursor.get(buser_id, bmember_data, MDB_NEXT)) {
++            try {
++                members.emplace(buser_id,
++                                nlohmann::json::parse(bmember_data).get<MemberInfo>());
++            } catch (const nlohmann::json::exception &e) {
++                nhlog::db()->warn("failed to parse member info: {}", e.what());
++            }
++        }
++        bcursor.close();
++
++        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
++            if (!cp->avatar_url.empty())
++                return QString::fromStdString(cp->avatar_url);
++        }
++    }
++
      // We don't use an avatar for group chats.
      if (membersdb.size(txn) > 2)
          return QString();
-@@ -3473,6 +3602,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+@@ -3473,6 +3624,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
      if (total == 1 && !members.empty())
          return QString::fromStdString(members.begin()->second.name);
  
@@ -937,6 +1146,51 @@ index d89457d..6a5f9d9 100644
 +    //! Allow BeeperReinitController to pause/resume the sync loop.
 +    friend class BeeperReinitController;
  };
+diff --git a/src/EventAccessors.cpp b/src/EventAccessors.cpp
+index a43d62c..3dfeaaa 100644
+--- a/src/EventAccessors.cpp
++++ b/src/EventAccessors.cpp
+@@ -363,6 +363,27 @@ mtx::accessors::msg_type(const mtx::events::collections::TimelineEvents &event)
+     return std::visit(EventMsgType{}, event);
+ }
+ 
++namespace {
++struct EventMsgTypeStr
++{
++    template<class T>
++    std::string operator()(const mtx::events::Event<T> &e)
++    {
++        if constexpr (requires(decltype(e) t) { t.content.msgtype.value(); })
++            return e.content.msgtype.value();
++        else if constexpr (requires(decltype(e) t) { std::string{t.content.msgtype}; })
++            return e.content.msgtype;
++        return "";
++    }
++};
++}
++
++std::string
++mtx::accessors::msg_type_str(const mtx::events::collections::TimelineEvents &event)
++{
++    return std::visit(EventMsgTypeStr{}, event);
++}
++
+ std::string
+ mtx::accessors::room_name(const mtx::events::collections::TimelineEvents &event)
+ {
+diff --git a/src/EventAccessors.h b/src/EventAccessors.h
+index 9868d29..890fe07 100644
+--- a/src/EventAccessors.h
++++ b/src/EventAccessors.h
+@@ -45,6 +45,8 @@ mtx::events::EventType
+ event_type(const mtx::events::collections::TimelineEvents &event);
+ mtx::events::MessageType
+ msg_type(const mtx::events::collections::TimelineEvents &event);
++std::string
++msg_type_str(const mtx::events::collections::TimelineEvents &event);
+ bool
+ is_message(const mtx::events::collections::TimelineEvents &event);
+ std::string
 diff --git a/src/MxcImageProvider.cpp b/src/MxcImageProvider.cpp
 index ba4c4dd..3fd37ea 100644
 --- a/src/MxcImageProvider.cpp
@@ -987,7 +1241,7 @@ index ba4c4dd..3fd37ea 100644
              QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
                                   "/media_cache",
 diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
-index db3bf7f..d7f894c 100644
+index db3bf7f..f607fba 100644
 --- a/src/UserSettingsPage.cpp
 +++ b/src/UserSettingsPage.cpp
 @@ -92,12 +92,15 @@ UserSettings::load(std::optional<QString> profile)
@@ -1015,7 +1269,7 @@ index db3bf7f..d7f894c 100644
      applyTheme();
  
      if (profile)
-@@ -432,6 +437,16 @@ UserSettings::setSortByAlphabet(bool state)
+@@ -432,6 +437,26 @@ UserSettings::setSortByAlphabet(bool state)
      save();
  }
  
@@ -1029,10 +1283,20 @@ index db3bf7f..d7f894c 100644
 +    save();
 +}
 +
++void
++UserSettings::setSortUnreadFirst(bool state)
++{
++    if (state == sortUnreadFirst_)
++        return;
++    sortUnreadFirst_ = state;
++    emit sortUnreadFirstChanged(state);
++    save();
++}
++
  void
  UserSettings::setButtonsInTimeline(bool state)
  {
-@@ -500,6 +515,26 @@ UserSettings::setAvatarCircles(bool state)
+@@ -500,6 +525,46 @@ UserSettings::setAvatarCircles(bool state)
      save();
  }
  
@@ -1056,10 +1320,30 @@ index db3bf7f..d7f894c 100644
 +    save();
 +}
 +
++void
++UserSettings::setNetworkOutline(bool state)
++{
++    if (state == networkOutline_)
++        return;
++    networkOutline_ = state;
++    emit networkOutlineChanged(state);
++    save();
++}
++
++void
++UserSettings::setBeeperNetworkBadge(bool state)
++{
++    if (state == beeperNetworkBadge_)
++        return;
++    beeperNetworkBadge_ = state;
++    emit beeperNetworkBadgeChanged(state);
++    save();
++}
++
  void
  UserSettings::setDecryptSidebar(bool state)
  {
-@@ -930,6 +965,8 @@ UserSettings::save()
+@@ -930,6 +995,8 @@ UserSettings::save()
      settings.endGroup(); // timeline
  
      settings.setValue("avatar_circles", avatarCircles_);
@@ -1068,7 +1352,7 @@ index db3bf7f..d7f894c 100644
      settings.setValue("decrypt_sidebar", decryptSidebar_);
      settings.setValue("decrypt_notifications", decryptNotifications_);
      settings.setValue("space_notifications", spaceNotifications_);
-@@ -1013,6 +1050,228 @@ UserSettings::save()
+@@ -1013,6 +1080,228 @@ UserSettings::save()
      settings.sync();
  }
  
@@ -1297,7 +1581,7 @@ index db3bf7f..d7f894c 100644
  QHash<int, QByteArray>
  UserSettingsModel::roleNames() const
  {
-@@ -1196,6 +1455,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1196,6 +1485,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return tr("Periodically update community routing information");
          case ExpireEvents:
              return tr("Periodically delete expired events");
@@ -1316,7 +1600,7 @@ index db3bf7f..d7f894c 100644
          }
      } else if (role == Value) {
          switch (index.row()) {
-@@ -1342,6 +1613,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1342,6 +1643,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return i->updateSpaceVias();
          case ExpireEvents:
              return i->expireEvents();
@@ -1331,7 +1615,7 @@ index db3bf7f..d7f894c 100644
          }
      } else if (role == Description) {
          switch (index.row()) {
-@@ -1437,6 +1716,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1437,6 +1746,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
          case AvatarCircles:
              return tr(
                "Change the appearance of user avatars in chats.\nOFF - square, ON - circle.");
@@ -1342,7 +1626,7 @@ index db3bf7f..d7f894c 100644
          case UseIdenticon:
              return tr("Display an identicon instead of a letter when no avatar is set.");
          case OpenImageExternal:
-@@ -1543,6 +1826,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1543,6 +1856,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
                        "to have one client running this regularly.");
          case IgnoredUsers:
              return tr("Manage your ignored users.");
@@ -1355,7 +1639,7 @@ index db3bf7f..d7f894c 100644
          }
      } else if (role == Type) {
          switch (index.row()) {
-@@ -1633,6 +1922,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+@@ -1633,6 +1952,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
              return ConfigureHiddenEvents;
          case IgnoredUsers:
              return ManageIgnoredUsers;
@@ -1374,7 +1658,7 @@ index db3bf7f..d7f894c 100644
          }
      } else if (role == ValueLowerBound) {
          switch (index.row()) {
-@@ -1928,6 +2229,20 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
+@@ -1928,6 +2259,34 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
              } else
                  return false;
          }
@@ -1392,10 +1676,24 @@ index db3bf7f..d7f894c 100644
 +            } else
 +                return false;
 +        }
++        case NetworkOutline: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setNetworkOutline(value.toBool());
++                return true;
++            } else
++                return false;
++        }
++        case BeeperNetworkBadge: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setBeeperNetworkBadge(value.toBool());
++                return true;
++            } else
++                return false;
++        }
          case UseIdenticon: {
              if (value.userType() == QMetaType::Bool) {
                  i->setUseIdenticon(value.toBool());
-@@ -2283,6 +2598,9 @@ UserSettingsModel::UserSettingsModel(QObject *p)
+@@ -2283,6 +2642,9 @@ UserSettingsModel::UserSettingsModel(QObject *p)
      connect(s.get(), &UserSettings::avatarCirclesChanged, this, [this]() {
          emit dataChanged(index(AvatarCircles), index(AvatarCircles), {Value});
      });
@@ -1809,8 +2107,33 @@ index a707c10..24ab982 100644
 +}
 +
  #include "moc_CommunitiesModel.cpp"
+diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
+index 7af6d05..2d941d4 100644
+--- a/src/timeline/CommunitiesModel.h
++++ b/src/timeline/CommunitiesModel.h
+@@ -198,6 +198,9 @@ public:
+                                        bool setParent,
+                                        bool setChild,
+                                        bool canonical) const;
++    Q_INVOKABLE void createSpace(const QString &name, const QString &topic, const QString &avatarUrl, bool isPublic);
++    Q_INVOKABLE void updateSpace(const QString &spaceId, const QString &name, const QString &topic, const QString &avatarUrl);
++    Q_INVOKABLE void deleteSpace(const QString &spaceId);
+ 
+ public slots:
+     void initializeSidebar();
+@@ -231,6 +234,10 @@ signals:
+     void hiddenTagsChanged();
+     void tagsChanged();
+     void containsSubspacesChanged();
++    void spaceCreated(const QString &spaceId);
++    void spaceUpdated(const QString &spaceId);
++    void spaceDeleted(const QString &spaceId);
++    void spaceError(const QString &message);
+ 
+ private:
+     QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..65bf9b1 100644
+index ce2a8f8..5e9d49f 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2120,7 +2443,7 @@ index ce2a8f8..65bf9b1 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1114,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1114,22 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2132,10 +2455,18 @@ index ce2a8f8..65bf9b1 100644
 +                         invalidate();
 +                     });
 +
++    QObject::connect(UserSettings::instance().get(),
++                     &UserSettings::sortUnreadFirstChanged,
++                     this,
++                     [this](bool sortUnreadFirst_) {
++                         this->sortUnreadFirst = sortUnreadFirst_;
++                         invalidate();
++                     });
++
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1200,6 +1384,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1392,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2263,7 +2594,7 @@ index 7dfeb70..cb63138 100644
      enum class FilterBy
      {
 diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
-index 6233682..489b880 100644
+index 6233682..f046327 100644
 --- a/src/timeline/TimelineModel.cpp
 +++ b/src/timeline/TimelineModel.cpp
 @@ -3424,7 +3424,144 @@ TimelineModel::showImage() const
@@ -2323,7 +2654,7 @@ index 6233682..489b880 100644
 +    
 +            const auto sender  = QString::fromStdString(mtx::accessors::sender(*evt));
 +            const auto body    = QString::fromStdString(mtx::accessors::body(*evt));
-+            const auto msgtype = QString::fromStdString(mtx::accessors::msg_type(*evt));
++            const auto msgtype = QString::fromStdString(mtx::accessors::msg_type_str(*evt));
 +    
 +            out << sender << ": ";
 +            if (msgtype == QLatin1String("m.text") || msgtype == QLatin1String("m.notice"))
@@ -2401,7 +2732,7 @@ index 6233682..489b880 100644
 +    
 +            const auto sender  = QString::fromStdString(mtx::accessors::sender(*evt));
 +            const auto body    = QString::fromStdString(mtx::accessors::body(*evt));
-+            const auto msgtype = QString::fromStdString(mtx::accessors::msg_type(*evt));
++            const auto msgtype = QString::fromStdString(mtx::accessors::msg_type_str(*evt));
 +    
 +            out << "    {\n";
 +            out << "      \"sender\": " << sender << ",\n";
