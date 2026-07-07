@@ -2017,7 +2017,7 @@ index a707c10..24ab982 100644
                  return tag.mid(2);
              }
          }
-@@ -937,4 +945,89 @@ CommunitiesModel::updateSpaceStatus(QString space,
+@@ -937,4 +945,93 @@ CommunitiesModel::updateSpaceStatus(QString space,
      }
  }
  

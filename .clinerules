@@ -1,0 +1,18 @@
+# Project Rules — Nheko Patch Management
+
+## CRITICAL: Only modify patch files, never nheko source
+
+This project maintains patches for the [nheko](nheko/) Matrix client. The [`nheko/`](nheko/) directory contains the upstream source code and **MUST NOT be modified directly**.
+
+### When fixing build issues or making changes:
+- **NEVER** modify `.cpp`, `.h`, `.qml`, `.cmake`, or any other files inside [`nheko/`](nheko/)
+- **ONLY** modify `.patch` files inside [`patches/`](patches/)
+- If a change would logically touch a file in [`nheko/`](nheko/), instead update the corresponding patch file in [`patches/`](patches/) that introduces that change
+- New source files should be placed in [`patches/new-files/`](patches/new-files/) preserving the original relative path structure
+- Plans and documentation go in [`plans/`](plans/)
+
+### Patch file naming convention:
+- [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch) — Unified beep patch
+- [`patches/000X-description.patch`](patches/000X-description.patch) — Individual feature/fix patches
+- [`patches/new-files/`](patches/new-files/) — New files to be introduced by patches
+- [`patches/archive/`](patches/archive/) — Deprecated/archived patches
