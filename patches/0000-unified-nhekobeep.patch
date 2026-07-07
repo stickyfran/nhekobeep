@@ -2030,12 +2030,16 @@ index a707c10..24ab982 100644
 +    mtx::requests::CreateRoom req;
 +    req.name          = name.toStdString();
 +    req.topic         = topic.toStdString();
-+    req.room_type     = "m.space";
-+    req.creation_content["type"] = "m.space";
++    req.creation_content       = mtx::events::state::Create{};
++    req.creation_content->type = mtx::events::state::room_type::space;
 +    req.preset        = isPublic ? mtx::requests::Preset::PublicChat : mtx::requests::Preset::PrivateChat;
 +
-+    if (!avatarUrl.isEmpty())
-+        req.avatar = avatarUrl.toStdString();
++    if (!avatarUrl.isEmpty()) {
++        mtx::events::StrippedEvent<mtx::events::state::Avatar> avatarEvent;
++        avatarEvent.type              = mtx::events::EventType::RoomAvatar;
++        avatarEvent.content.url = avatarUrl.toStdString();
++        req.initial_state.emplace_back(std::move(avatarEvent));
++    }
 +
 +    http::client()->create_room(
 +      req,
@@ -2046,7 +2050,7 @@ index a707c10..24ab982 100644
 +              emit spaceError(tr("Failed to create space: %1").arg(msg));
 +              return;
 +          }
-+          QString roomId = QString::fromStdString(res.room_id);
++          QString roomId = QString::fromStdString(res.room_id.to_string());
 +          nhlog::ui()->info("Created space: {}", roomId.toStdString());
 +          initializeSidebar();
 +          emit spaceCreated(roomId);
@@ -2063,7 +2067,7 @@ index a707c10..24ab982 100644
 +        mtx::events::state::Name nameEvent;
 +        nameEvent.name = name.toStdString();
 +        http::client()->send_state_event(
-+          room_id, nameEvent, [spaceId](mtx::http::RequestErr err) {
++          room_id, nameEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
 +              if (err)
 +                  nhlog::ui()->error("Failed to update space name: {}",
 +                                     err->matrix_error.error);
@@ -2075,7 +2079,7 @@ index a707c10..24ab982 100644
 +        mtx::events::state::Topic topicEvent;
 +        topicEvent.topic = topic.toStdString();
 +        http::client()->send_state_event(
-+          room_id, topicEvent, [spaceId](mtx::http::RequestErr err) {
++          room_id, topicEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
 +              if (err)
 +                  nhlog::ui()->error("Failed to update space topic: {}",
 +                                     err->matrix_error.error);
@@ -2087,7 +2091,7 @@ index a707c10..24ab982 100644
 +        mtx::events::state::Avatar avatarEvent;
 +        avatarEvent.url = avatarUrl.toStdString();
 +        http::client()->send_state_event(
-+          room_id, avatarEvent, [spaceId](mtx::http::RequestErr err) {
++          room_id, avatarEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
 +              if (err)
 +                  nhlog::ui()->error("Failed to update space avatar: {}",
 +                                     err->matrix_error.error);
