@@ -1,0 +1,167 @@
+# patches/0011-groups-filter-badge.patch
+#
+# Groups filter badge — inject a virtual "Groups" tag into CommunitiesModel
+# that filters the room list to show only non-DM rooms.
+#
+# == Changes ==
+#
+# 1. CommunitiesModel.cpp / CommunitiesModel.h
+#    - Inject "virtual:groups" into tags_ so it always appears in the sidebar.
+#    - Handle "virtual:groups" in data() with its own icon (people.svg),
+#      display name "Groups" and tooltip.
+#    - Filter "virtual:groups" out of tags() / tagsWithDefault() so it does
+#      NOT appear in the "Tag room as:" context menu.
+#    - Add a Groups category to the FilteredCommunitiesModel sort order
+#      (positioned between Favourites and Server Notices).
+#
+# 2. RoomlistModel.cpp
+#    - In FilteredRoomlistModel::filterAcceptsRow for FilterBy::Tag:
+#      when filterStr == "virtual:groups", accept rooms where IsDirect == false
+#      (i.e. show only group / multi-user rooms, hiding 1:1 direct chats).
+#    - In RoomlistModel::data() for the IsDirect role: also consult the
+#      networkCache (populated by updateNetworkCache from the unified patch)
+#      so that Beeper 3-member bridged rooms (local user + bridge bot + real
+#      contact) are treated as direct chats even if not yet listed in m.direct.
+#
+# == Beeper bridge DM detection ==
+#
+# The unified patch (0000-unified-nhekobeep.patch) already introduces
+# updateNetworkCache() / rebuildNetworkCache() which detects 3-member rooms
+# with a beeper.local bridge bot.  By extending the IsDirect check to also
+# look at networkCache[counterpartMxid], Beeper bridge DMs are correctly
+# excluded from the "Groups" view.
+#
+# == Dependencies ==
+#
+# Applies on top of pristine nheko master.  The unified patch
+# (0000-unified-nhekobeep.patch) is NOT required for the CommunitiesModel
+# changes, but IS required for the RoomlistModel networkCache-based IsDirect
+# detection.  If the unified patch is not applied, the Beeper fallback in
+# the IsDirect check will simply not find anything (networkCache will be
+# empty) and standard m.direct DMs will still be correctly excluded.
+
+diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
+index 4636524..e6d3ad0 100644
+--- a/src/timeline/CommunitiesModel.h
++++ b/src/timeline/CommunitiesModel.h
+@@ -211,13 +211,19 @@ public:
+         currentTagId_.clear();
+         emit currentTagIdChanged(currentTagId_);
+     }
+-    QStringList tags() const { return tags_; }
++    QStringList tags() const
++    {
++        QStringList t = tags_;
++        t.removeAll(QStringLiteral("virtual:groups"));
++        return t;
++    }
+     QStringList tagsWithDefault() const
+     {
+         QStringList tagsWD = tags_;
++        tagsWD.removeAll(QStringLiteral("virtual:groups"));
+         tagsWD.prepend(QStringLiteral("m.lowpriority"));
+         tagsWD.prepend(QStringLiteral("m.favourite"));
+         tagsWD.removeOne(QStringLiteral("m.server_notice"));
+         tagsWD.removeDuplicates();
+         return tagsWD;
+     }
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index 62689be..e06497a 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -170,6 +170,14 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Messages from your server or administrator.");
+             }
++        } else if (tag == QLatin1String("virtual:groups")) {
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                return QStringLiteral(":/icons/icons/ui/people.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return tr("Groups");
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Show rooms that are not direct chats.");
++            }
+         } else {
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
+@@ -362,6 +370,9 @@ CommunitiesModel::initializeSidebar()
+     for (const auto &t : ts)
+         tags_.push_back(QString::fromStdString(t));
+ 
++    // Inject virtual groups tag so it always appears in the sidebar.
++    tags_.prepend(QStringLiteral("virtual:groups"));
++
+     spaceOrder_.restoreCollapsed();
+ 
+     for (auto &space : spaceOrder_.tree) {
+@@ -700,6 +711,7 @@ enum Categories
+ {
+     World,
+     Direct,
++    Groups,
+     Favourites,
+     Server,
+     LowPrio,
+@@ -717,6 +729,8 @@ tagIdToCat(const QString &tagId)
+         return Direct;
+     else if (tagId == QLatin1String("tag:m.favourite"))
+         return Favourites;
++    else if (tagId == QLatin1String("tag:virtual:groups"))
++        return Groups;
+     else if (tagId == QLatin1String("tag:m.server_notice"))
+         return Server;
+     else if (tagId == QLatin1String("tag:m.lowpriority"))
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index 6f8dc39..9f7ea98 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -107,7 +107,16 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+         } else if (role == Roles::RoomId) {
+             return roomid;
+         } else if (role == Roles::IsDirect) {
+-            return directChatToUser.count(roomid) > 0;
++            if (directChatToUser.count(roomid) > 0)
++                return true;
++
++            // Fallback: Beeper 3-member bridged rooms (detected by
++            // updateNetworkCache) should also be treated as direct chats.
++            auto it = networkCache.find(roomid);
++            if (it != networkCache.end() && !it->counterpartMxid.isEmpty())
++                return true;
++
++            return false;
+         } else if (role == Roles::DirectChatOtherUserId) {
+             return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
+                                                   : QLatin1String("");
+@@ -1090,6 +1099,26 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) con
+             return false;
+         }
+ 
++        // Special case: virtual:groups tag shows only non-DM rooms.
++        if (filterStr == QLatin1String("virtual:groups")) {
++            // Still respect hidden tags/spaces for sub-filtering.
++            if (!hiddenTags.empty()) {
++                auto tags = sourceModel()
++                              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
++                              .toStringList();
++                for (const auto &t : std::as_const(tags))
++                    if (hiddenTags.contains(t))
++                        return false;
++            }
++            if (!hiddenSpaces.empty()) {
++                auto parents = sourceModel()
++                                 ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::ParentSpaces)
++                                 .toStringList();
++                for (const auto &t : std::as_const(parents))
++                    if (hiddenSpaces.contains(t))
++                        return false;
++            }
++            return !sourceModel()
++                      ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect)
++                      .toBool();
++        }
++
+         auto tags = sourceModel()
+                       ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
+                       .toStringList();
