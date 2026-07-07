@@ -645,7 +645,7 @@ index 8f51e66..fb501a7 100644
      ImageButton {
          id: backButton
          anchors.top: parent.top
-@@ -275,5 +649,14 @@ Rectangle {
+@@ -275,5 +649,15 @@ Rectangle {
          ToolTip.text: qsTr("Back")
          onClicked: mainWindow.pop()
      }
@@ -844,7 +844,7 @@ index 0f621df..ba1d1b9 100644
  QString
  Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
  {
-@@ -3382,6 +3489,50 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
+@@ -3382,6 +3489,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
          }
      }
  
@@ -1061,7 +1061,7 @@ index db3bf7f..f607fba 100644
      applyTheme();
  
      if (profile)
-@@ -432,6 +437,26 @@ UserSettings::setSortByAlphabet(bool state)
+@@ -432,6 +437,16 @@ UserSettings::setSortByAlphabet(bool state)
      save();
  }
  
@@ -1078,7 +1078,7 @@ index db3bf7f..f607fba 100644
  void
  UserSettings::setButtonsInTimeline(bool state)
  {
-@@ -500,6 +525,46 @@ UserSettings::setAvatarCircles(bool state)
+@@ -500,6 +525,26 @@ UserSettings::setAvatarCircles(bool state)
      save();
  }
  
@@ -1420,7 +1420,7 @@ index db3bf7f..f607fba 100644
          }
      } else if (role == ValueLowerBound) {
          switch (index.row()) {
-@@ -1928,6 +2259,34 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
+@@ -1928,6 +2259,20 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
              } else
                  return false;
          }
@@ -1745,7 +1745,7 @@ diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.c
 index a707c10..24ab982 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
-@@ -5,6 +5,7 @@
+@@ -5,4 +5,5 @@
  #include "CommunitiesModel.h"
  
  #include <mtx/responses/common.hpp>
@@ -2201,7 +2201,7 @@ index ce2a8f8..5e9d49f 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1114,22 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1114,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2347,7 +2347,7 @@ diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
 index 6233682..f046327 100644
 --- a/src/timeline/TimelineModel.cpp
 +++ b/src/timeline/TimelineModel.cpp
-@@ -3424,7 +3424,143 @@ TimelineModel::showImage() const
+@@ -3424,9 +3424,144 @@ TimelineModel::showImage() const
      case UserSettings::ShowImage::Never:
      default:
          return false;
