@@ -443,7 +443,7 @@ diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/User
 index 8f51e66..fb501a7 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
 +++ b/resources/qml/pages/UserSettingsPage.qml
-@@ -252,6 +252,70 @@ Rectangle {
+@@ -252,6 +252,39 @@ Rectangle {
                              }
                          }
  
@@ -483,7 +483,7 @@ index 8f51e66..fb501a7 100644
                          DelegateChoice {
                              Text {
                                  text: model.value
-@@ -263,6 +327,316 @@ Rectangle {
+@@ -263,6 +327,161 @@ Rectangle {
          }
      }
  
@@ -645,7 +645,7 @@ index 8f51e66..fb501a7 100644
      ImageButton {
          id: backButton
          anchors.top: parent.top
-@@ -275,5 +649,15 @@ Rectangle {
+@@ -275,5 +649,14 @@ Rectangle {
          ToolTip.text: qsTr("Back")
          onClicked: mainWindow.pop()
      }
