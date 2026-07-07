@@ -336,6 +336,9 @@ BeeperReinitWorker::process()
             size_t end = std::min(i + MESSAGES_BATCH_SIZE, roomIds.size());
             for (size_t j = i; j < end; ++j) {
                 const auto &roomId = roomIds[j];
+                // Capture the room_id as a local copy so the lambda below
+                // can safely reference it even after the loop advances.
+                const auto roomIdCopy = roomId;
 
                 std::atomic<bool> msgDone{false};
                 std::atomic<bool> msgOk{false};
@@ -348,16 +351,35 @@ BeeperReinitWorker::process()
 
                 http::client()->messages(
                   opts,
-                  [&msgDone, &msgOk, &roomId](const mtx::responses::Messages &msgs,
-                                              mtx::http::RequestErr err) {
+                  [&msgDone, &msgOk, &roomIdCopy, cache](const mtx::responses::Messages &msgs,
+                                                         mtx::http::RequestErr err) {
                       if (!err) {
                           nhlog::net()->debug("BeeperReinit: fetched {} messages for {}",
                                               msgs.chunk.size(),
-                                              roomId);
+                                              roomIdCopy);
+
+                          // Persist fetched messages to LMDB.
+                          // This ensures the room list is sorted by actual
+                          // last-message timestamps instead of falling back
+                          // to alphabetical order (which happens when all
+                          // timestamps are zero after a fresh initial sync).
+                          if (!msgs.chunk.empty()) {
+                              try {
+                                  auto count = cache->saveOldMessages(roomIdCopy, msgs);
+                                  nhlog::db()->debug(
+                                    "BeeperReinit: saved {} messages ({} new) for {}",
+                                    msgs.chunk.size(), count, roomIdCopy);
+                              } catch (const lmdb::error &e) {
+                                  nhlog::db()->warn(
+                                    "BeeperReinit: failed to save messages for {}: {}",
+                                    roomIdCopy, e.what());
+                              }
+                          }
+
                           msgOk.store(true, std::memory_order_release);
                       } else {
                           nhlog::net()->warn("BeeperReinit: messages failed for {}: {}",
-                                             roomId,
+                                             roomIdCopy,
                                              err->matrix_error.error);
                       }
                       msgDone.store(true, std::memory_order_release);

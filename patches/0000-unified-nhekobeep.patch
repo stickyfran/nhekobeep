@@ -2237,8 +2237,8 @@ index ce2a8f8..65bf9b1 100644
 +
 +    // kBeeperPrefixMap logic duplicated inline for access from the method
 +    static const QHash<QString, QPair<QString, QColor>> prefixMap = {
-+        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x366)}},
-+        {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x366)}},
++        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
++        {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
 +        {"instagram_",    {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
 +        {"instagramgo_",  {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
 +        {"telegram_",     {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},

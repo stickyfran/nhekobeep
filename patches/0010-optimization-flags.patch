@@ -1,0 +1,64 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8122313..fb87be8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,6 +12,13 @@ endif()
+ option(FLATPAK "Set this only if Nheko is built as a flatpak" OFF)
+ option(JSON_ImplicitConversions "Disable implicit conversions in nlohmann/json" ON)
+ 
++#
++# -- Optimisation options ------------------------------------------------------
++#
++option(NHEKO_OPTIMIZE_NATIVE
++    "Append -O3 -march=native -mtune=native to Release-build compiler flags for maximum CPU-specific performance."
++    ON)
++
+ set(
+     CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake"
+     CACHE
+@@ -49,6 +56,20 @@ endmacro()
+ 
+ project(nheko LANGUAGES CXX C)
+ 
++# ---- LTO / IPO (Link-Time / Interprocedural Optimisation) --------------------
++#
++# Enables cross-translation-unit inlining and aggressive optimisation across
++# the entire codebase *and* its statically-linked dependencies.
++#
++include(CheckIPOSupported)
++check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_error)
++if(_ipo_supported)
++    message(STATUS "IPO / LTO is supported -- enabling global interprocedural optimisation")
++    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++else()
++    message(WARNING "IPO / LTO is NOT supported by this compiler toolchain: ${_ipo_error}")
++endif()
++
+ option(USE_BUNDLED_SPDLOG "Use the bundled version of spdlog." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_FMT "Use the bundled version of {fmt}." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_OLM "Use the bundled version of libolm." ${HUNTER_ENABLED})
+@@ -330,6 +351,24 @@ else(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+     message("Build type set to '${CMAKE_BUILD_TYPE}'")
+ endif(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+ 
++# ---- Native-architecture Release flags ---------------------------------------
++#
++# When NHEKO_OPTIMIZE_NATIVE is ON (the default), inject -O3, -march=native and
++# -mtune=native into the Release (and RelWithDebInfo / MinSizeRel) flag sets.
++# These flags tell GCC (or Clang) to tune every emitted instruction for the
++# *exact* CPU on which the build is running.
++#
++if(NHEKO_OPTIMIZE_NATIVE)
++    foreach(_config IN ITEMS RELEASE RELWITHDEBINFO MINSIZEREL)
++        string(APPEND CMAKE_CXX_FLAGS_${_config} " -O3 -march=native -mtune=native")
++        string(APPEND CMAKE_C_FLAGS_${_config}   " -O3 -march=native -mtune=native")
++    endforeach()
++    message(STATUS
++        "NHEKO_OPTIMIZE_NATIVE: appended -O3 -march=native -mtune=native "
++        "to CMAKE_CXX_FLAGS_RELEASE / CMAKE_C_FLAGS_RELEASE "
++        "(and RelWithDebInfo / MinSizeRel)")
++endif()
++
+ set(SPDLOG_DEBUG_ON false)
+ 
+ # Windows doesn't handle CMAKE_BUILD_TYPE.

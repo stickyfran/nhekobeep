@@ -1,0 +1,13 @@
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index abc1234..def5678 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -2236,7 +2236,7 @@ QColor
+ FilteredRoomlistModel::networkColorForMxid(const QString &mxid) const
+ {
+     static const QHash<QString, QPair<QString, QColor>> prefixMap = {
+-        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x366)}},
++        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
+         {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
+         {"instagram_",    {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
+         {"instagramgo_",  {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
