@@ -203,6 +203,14 @@ diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.q
 index a134474..5c24197 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
+@@ -202,6 +202,7 @@
+             property string tagId
+ 
+             function show(parent, id_, hidden_, muted_) {
++                console.log("[BEEPER-DEBUG] Context menu opened tagId=" + id_ + " hidden=" + hidden_ + " muted=" + muted_);
+                 tagId = id_;
+                 hidden = hidden_;
+                 muted = muted_;
 @@ -29,12 +29,98 @@ Page {
  
          target: MainWindow
@@ -460,8 +468,14 @@ index a134474..5c24197 100644
 +
 +                text: qsTr("Edit Label...")
 +                // Show for any tag that already has a custom label OR any raw Beeper folder
-+                visible: CustomLabelListModel.displayNameForTag(pureTag) !== "" || pureTag.startsWith("u.")
++                visible: {
++                    var displayName = CustomLabelListModel.displayNameForTag(pureTag);
++                    var rc = (typeof CustomLabelListModel.rowCount === 'function') ? CustomLabelListModel.rowCount() : -1;
++                    console.log("[BEEPER-DEBUG] EditLabel visibilityCheck tagId=" + communityContextMenu.tagId + " pureTag=" + pureTag + " displayNameForTag='" + displayName + "' startsWithU=" + pureTag.startsWith("u.") + " rowCount=" + rc);
++                    return displayName !== "" || pureTag.startsWith("u.");
++                }
 +                onTriggered: {
++                    console.log("[BEEPER-DEBUG] EditLabel triggered tagId=" + communityContextMenu.tagId + " pureTag=" + pureTag);
 +                    var dialog = editCustomLabelComponent.createObject(communitySidebar, {
 +                        "labelTag": pureTag
 +                    });
@@ -495,7 +509,7 @@ index a134474..5c24197 100644
 +                            Label { text: qsTr("Icon (emoji or path):") }
 +                            TextField {
 +                                id: editLabelIconField
-+                                placeholderText: qsTr("💼 or :/icons/...")
++                                placeholderText: qsTr("ðŸ’¼ or :/icons/...")
 +                                text: CustomLabelListModel.iconKeyForTag(editCustomLabelDialog.labelTag)
 +                                Layout.fillWidth: true
 +                            }
@@ -524,7 +538,7 @@ index 84b34a7..656d643 100644
              source: "image://colorimage/:/icons/icons/ui/download.svg?" + (toEndButton.down ? palette.highlightedText : palette.buttonText)
          }
      }
-+    // Floating date pill — contextual date label while scrolling.
++    // Floating date pill â€” contextual date label while scrolling.
 +    // Anchored at the top-center of chatRoot, above all timeline content.
 +    Rectangle {
 +        id: datePill
@@ -2758,6 +2772,9 @@ index ce2a8f8..a514d96 100644
 +        auto local   = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
++        nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} members.size={}",
++                           roomid.toStdString(), members.size());
++
 +        for (const auto &m : members) {
 +            if (m.user_id == local)
 +                continue;
@@ -2776,13 +2793,20 @@ index ce2a8f8..a514d96 100644
 +        }
 +    }
 +
++    nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} isBeeperBridge={} activeMembers={} counterpart={}",
++                       roomid.toStdString(), isBeeperBridge, activeMembers, counterpart.toStdString());
++
 +    if (isBeeperBridge) {
 +        if (activeMembers > 2) {
++            nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} CLASSIFIED=Group activeMembers={}",
++                               roomid.toStdString(), activeMembers);
 +            // Group chat (bot + 2+ real contacts = total > 3 members).
 +            // Clear counterpart so IsDirect returns false.
 +            networkCache.insert(
 +              roomid, {netInfo.name, netInfo.color, QString(), activeMembers});
 +        } else {
++            nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} CLASSIFIED=DM activeMembers={}",
++                               roomid.toStdString(), activeMembers);
 +            // 1:1 DM  (local user + bot + 1 real contact = total <= 3)
 +            networkCache.insert(
 +              roomid, {netInfo.name, netInfo.color, counterpart, activeMembers});
@@ -2795,11 +2819,15 @@ index ce2a8f8..a514d96 100644
 +    if (directChatToUser.count(roomid)) {
 +        const auto &userId = directChatToUser.at(roomid).front();
 +        auto info          = beeperNetworkFromMxid(userId);
++        nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} FALLBACK_DM nativeMatrix=true",
++                           roomid.toStdString());
 +        networkCache.insert(roomid, {info.name, info.color, userId, 1});
 +        return;
 +    }
 +
 +    // No bridge detected
++    nhlog::ui()->debug("[BEEPER-DEBUG] updateNetworkCache roomid={} NO_BRIDGE",
++                       roomid.toStdString());
 +    networkCache.insert(roomid, {QString(), QColor(), QString(), 0});
 +}
 +
@@ -2890,6 +2918,10 @@ index ce2a8f8..a514d96 100644
 +        const int msgCount =
 +          sourceModel()->data(idx, RoomlistModel::UnreadMessages).toInt();
 +
++        nhlog::ui()->debug("[BEEPER-DEBUG] filterAcceptsRow VirtualUnread sourceRow={} hasUnread={} notifCount={} msgCount={} ACCEPT={}",
++                           sourceRow, hasUnread, notifCount, msgCount,
++                           (hasUnread || notifCount > 0 || msgCount > 0));
++
 +        return hasUnread || notifCount > 0 || msgCount > 0;
 +    } else if (filterType == FilterBy::VirtualGroups) {
 +        // Virtual groups filter: Bypass ALL standard tag/space/DM hiding hooks.
@@ -2903,7 +2935,13 @@ index ce2a8f8..a514d96 100644
 +        if (sourceModel()->data(idx, RoomlistModel::IsSpace).toBool())
 +            return false;
 +
-+        return !sourceModel()->data(idx, RoomlistModel::IsDirect).toBool();
++        const bool isDirect =
++          sourceModel()->data(idx, RoomlistModel::IsDirect).toBool();
++
++        nhlog::ui()->debug("[BEEPER-DEBUG] filterAcceptsRow VirtualGroups sourceRow={} IsDirect={} ACCEPT={}",
++                           sourceRow, isDirect, !isDirect);
++
++        return !isDirect;
      } else {
          return true;
      }
