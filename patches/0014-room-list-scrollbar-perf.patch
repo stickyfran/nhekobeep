@@ -9,9 +9,10 @@
 # 1. ScrollBar enhancements (RoomList.qml):
 #    - Made the vertical ScrollBar always visible and interactive
 #    - Set policy to ScrollBar.AlwaysOn so it never auto-hides
-#    - Added a minimal custom contentItem (rounded rect) themed with
-#      Nheko.theme.separator, with pressed-state highlighting
-#    - Added a minimal background for visual tracking area
+#    - Thickened to 14px for easy click-and-drag targeting
+#    - Added rounded-rect contentItem themed with Nheko.theme.separator,
+#      pressed/hover highlighting, and good contrast against sidebar
+#    - Added a subtle background for visual tracking area
 #    - Removed the conditional parent assignment tied to
 #      Settings.scrollbarsInRoomlist — the scrollbar is now persistent
 #
@@ -20,21 +21,22 @@
 #      destruction/recreation on scroll, eliminating avatar re-loads
 #    - Set maximumFlickVelocity: 6000 — allows faster flick scrolling
 #      on high-refresh-rate displays (120Hz+)
-#    - Set cacheBuffer: 2000 — pre-renders more off-screen delegates
-#      for smoother scroll transitions
+#    - Set cacheBuffer: Math.ceil(avatarSize * 5) — small dynamic buffer
+#      (~180px on default DPI) that prevents RAM bloat while keeping
+#      reuseItems effective for smooth scroll transitions
 #
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
 index abcdef1..abcdef2 100644
 --- a/resources/qml/RoomList.qml
 +++ b/resources/qml/RoomList.qml
-@@ -436,15 +436,31 @@ Page {
+@@ -436,15 +436,38 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
 
 -        //reuseItems: true
 +        reuseItems: true
 +        maximumFlickVelocity: 6000
-+        cacheBuffer: 2000
++        cacheBuffer: Math.ceil(avatarSize * 5)
 +
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
@@ -46,14 +48,14 @@ index abcdef1..abcdef2 100644
 +            policy: ScrollBar.AlwaysOn
 +
 +            contentItem: Rectangle {
-+                implicitWidth: 8
-+                radius: 4
-+                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.4)
++                implicitWidth: 14
++                radius: 7
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
 +            }
 +
 +            background: Rectangle {
-+                implicitWidth: 8
-+                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.08)
++                implicitWidth: 14
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
 +            }
          }
          delegate: ItemDelegate {

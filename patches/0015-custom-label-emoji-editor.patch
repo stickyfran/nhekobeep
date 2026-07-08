@@ -17,7 +17,7 @@
 #      * Per-row "Save" button (explicit save, not auto-save on text change)
 #      * Delete button per row
 #      * "Add Custom Label" sub-dialog with fields for tag, name, and emoji
-#      * Emoji TextField with single-character auto-truncation
+#      * Emoji TextField (accepts full emoji including multi-byte UTF-16)
 #
 # 2. resources/qml/CommunitiesList.qml
 #    - Introduce `isEmojiIcon` read-only property on the item delegate that
@@ -47,12 +47,12 @@ index a134474..0d2f6ff 100644
 +
 +                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
 +                readonly property bool isEmojiIcon: {
-+                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                    var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                    if (urlStr === "")
 +                        return false;
-+                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
-+                    if (model.avatarUrl.startsWith("mxc://") ||
-+                        model.avatarUrl.startsWith(":/") ||
-+                        model.avatarUrl.startsWith("image://"))
++                    if (urlStr.startsWith("mxc://") ||
++                        urlStr.startsWith(":/") ||
++                        urlStr.startsWith("image://"))
 +                        return false;
 +                    return true;
 +                }
@@ -199,13 +199,7 @@ index 8f51e66..ff09c17 100644
 +                                        return "";
 +                                    }
 +                                    onTextChanged: {
-+                                        if (text.length > 1) {
-+                                            // Keep only the first character.
-+                                            labelRow.editedIcon = text.charAt(0);
-+                                            iconField.text = labelRow.editedIcon;
-+                                        } else {
-+                                            labelRow.editedIcon = text;
-+                                        }
++                                        labelRow.editedIcon = text;
 +                                    }
 +                                    ToolTip.text: qsTr("Enter a single emoji character")
 +                                    ToolTip.visible: hovered
@@ -286,10 +280,6 @@ index 8f51e66..ff09c17 100644
 +                        id: newIconField
 +                        placeholderText: qsTr("💼")
 +                        Layout.fillWidth: true
-+                        onTextChanged: {
-+                            if (text.length > 1)
-+                                text = text.charAt(0);
-+                        }
 +                    }
 +                }
 +

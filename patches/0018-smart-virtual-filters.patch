@@ -1,0 +1,267 @@
+# patches/0018-smart-virtual-filters.patch
+#
+# Epic 3: Smart Virtual Filters ("Unread" & "Groups")
+#
+# Injects two persistent virtual sidebar tags ("virtual:unread" and
+# "virtual:groups") into the CommunitiesModel and wires their filtering
+# logic in FilteredRoomlistModel::filterAcceptsRow.
+#
+# "virtual:unread" — shows only rooms with unread messages or pending
+#                     notifications.
+# "virtual:groups"  — shows only rooms that are NOT direct chats (group
+#                     rooms, including Beeper-bridged multi-user rooms).
+#
+# Both virtual tags are stripped from the tags() accessor so they never
+# appear in right-click "Tag room as..." context menus.
+#
+# == Changes ==
+#
+# 1. src/timeline/CommunitiesModel.h
+#    - Move tags() implementation from inline to .cpp (now filters out
+#      entries that start with "virtual:")
+#    - Update tagsWithDefault() to call tags() instead of reading tags_
+#      directly
+#
+# 2. src/timeline/CommunitiesModel.cpp
+#    - initializeSidebar(): push "virtual:unread" and "virtual:groups"
+#      into tags_ after collecting real tags
+#    - tags() (NEW out-of-line): return tags_ minus "virtual:*" entries
+#    - tagsWithDefault(): delegate to tags() for the base list
+#    - data(): handle "virtual:unread" and "virtual:groups" in the tag
+#      branch — assign alert.svg / people.svg icons, tr("Unread") /
+#      tr("Groups") display names
+#    - tagIdToCat(): add VirtualUnread / VirtualGroups categories so
+#      they sort after Direct Chats and before Favourites in the sidebar
+#
+# 3. src/timeline/RoomlistModel.h
+#    - Add VirtualUnread and VirtualGroups to the FilterBy enum
+#
+# 4. src/timeline/RoomlistModel.cpp
+#    - updateFilterTag(): accept "tag:virtual:unread" and
+#      "tag:virtual:groups" and set filterType accordingly
+#    - filterAcceptsRow(VirtualUnread): accept if HasUnreadMessages is
+#      true OR NotificationCount > 0
+#    - filterAcceptsRow(VirtualGroups): accept if IsDirect is false
+#
+diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
+index abcdef1..abcdef2 100644
+--- a/src/timeline/CommunitiesModel.h
++++ b/src/timeline/CommunitiesModel.h
+@@ -211,18 +211,10 @@ public:
+     void resetCurrentTagId()
+     {
+         currentTagId_.clear();
+         emit currentTagIdChanged(currentTagId_);
+     }
+-    QStringList tags() const { return tags_; }
+-    QStringList tagsWithDefault() const
+-    {
+-        QStringList tagsWD = tags_;
+-        tagsWD.prepend(QStringLiteral("m.lowpriority"));
+-        tagsWD.prepend(QStringLiteral("m.favourite"));
+-        tagsWD.removeOne(QStringLiteral("m.server_notice"));
+-        tagsWD.removeDuplicates();
+-        return tagsWD;
+-    }
++    QStringList tags() const;
++    QStringList tagsWithDefault() const;
+     void toggleTagId(QString tagId);
+     void toggleTagMute(QString tagId);
+ 
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index abcdef1..abcdef2 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -27,6 +27,22 @@ CommunitiesModel::CommunitiesModel(QObject *parent)
+     instance_ = this;
+ }
+ 
++QStringList
++CommunitiesModel::tags() const
++{
++    QStringList result;
++    for (const auto &t : tags_)
++        if (!t.startsWith(QLatin1String("virtual:")))
++            result.push_back(t);
++    return result;
++}
++
++QStringList
++CommunitiesModel::tagsWithDefault() const
++{
++    auto t = tags();
++    t.removeOne(QStringLiteral("m.server_notice"));
++    t.removeDuplicates();
++    t.prepend(QStringLiteral("m.lowpriority"));
++    t.prepend(QStringLiteral("m.favourite"));
++    return t;
++}
++
+ QHash<int, QByteArray>
+ CommunitiesModel::roleNames() const
+ {
+@@ -160,7 +176,31 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+         } else if (tag == QLatin1String("m.server_notice")) {
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+                 return tr("Server Notices");
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Messages from your server or administrator.");
+             }
++        } else if (tag == QLatin1String("virtual:unread")) {
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                return QStringLiteral(":/icons/icons/ui/alert.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return tr("Unread");
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Rooms with unread messages.");
++            case CommunitiesModel::Roles::UnreadMessages:
++                return (int)globalUnreads.notification_count;
++            case CommunitiesModel::Roles::HasLoudNotification:
++                return globalUnreads.highlight_count > 0;
++            }
++        } else if (tag == QLatin1String("virtual:groups")) {
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                return QStringLiteral(":/icons/icons/ui/people.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return tr("Groups");
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Group chats.");
++            }
+         } else {
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
+@@ -362,6 +402,9 @@ CommunitiesModel::initializeSidebar()
+     for (const auto &t : ts)
+         tags_.push_back(QString::fromStdString(t));
+ 
++    // Persistent virtual smart filters (stripped from tags() accessor).
++    tags_.push_back(QStringLiteral("virtual:unread"));
++    tags_.push_back(QStringLiteral("virtual:groups"));
++
+     spaceOrder_.restoreCollapsed();
+ 
+     for (auto &space : spaceOrder_.tree) {
+@@ -700,6 +743,8 @@ namespace {
+ enum Categories
+ {
+     World,
++    VirtualUnread,
++    VirtualGroups,
+     Direct,
+     Favourites,
+     Server,
+@@ -715,6 +760,10 @@ tagIdToCat(const QString &tagId)
+         return World;
+     else if (tagId == QLatin1String("dm"))
+         return Direct;
++    else if (tagId == QLatin1String("tag:virtual:unread"))
++        return VirtualUnread;
++    else if (tagId == QLatin1String("tag:virtual:groups"))
++        return VirtualGroups;
+     else if (tagId == QLatin1String("tag:m.favourite"))
+         return Favourites;
+     else if (tagId == QLatin1String("tag:m.server_notice"))
+diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
+index abcdef1..abcdef2 100644
+--- a/src/timeline/RoomlistModel.h
++++ b/src/timeline/RoomlistModel.h
+@@ -252,8 +252,10 @@ private:
+     enum class FilterBy
+     {
+         Tag,
+         Space,
+         DirectChats,
++        VirtualUnread,
++        VirtualGroups,
+         Nothing,
+     };
+     QString filterStr   = QLatin1String("");
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index abcdef1..abcdef2 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -222,6 +222,12 @@ FilteredRoomlistModel::updateFilterTag(QString tagId)
+         } else if (tagId.startsWith(QLatin1String("dm"))) {
+             filterType = FilterBy::DirectChats;
+             filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:unread")) {
++            filterType = FilterBy::VirtualUnread;
++            filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:groups")) {
++            filterType = FilterBy::VirtualGroups;
++            filterStr.clear();
+         } else {
+             filterType = FilterBy::Nothing;
+             filterStr.clear();
+@@ -1176,6 +1182,63 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+         }
+ 
+         return true;
++    } else if (filterType == FilterBy::VirtualUnread) {
++        // Hide spaces and unfetched previews from the unread filter.
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        if (!hiddenTags.empty()) {
++            auto tags = sourceModel()
++                          ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
++                          .toStringList();
++
++            for (const auto &t : std::as_const(tags))
++                if (hiddenTags.contains(t))
++                    return false;
++        }
++
++        if (!hiddenSpaces.empty()) {
++            auto parents = sourceModel()
++                             ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::ParentSpaces)
++                             .toStringList();
++            for (const auto &t : std::as_const(parents))
++                if (hiddenSpaces.contains(t))
++                    return false;
++        }
++
++        bool hasUnread =
++          sourceModel()
++            ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages)
++            .toBool();
++        int notifCount =
++          sourceModel()
++            ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount)
++            .toInt();
++
++        return hasUnread || notifCount > 0;
++    } else if (filterType == FilterBy::VirtualGroups) {
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        // Accept only non-direct-chat rooms (i.e. group rooms).
++        return !sourceModel()
++                    ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect)
++                    .toBool();
+     } else {
+         return true;
+     }

@@ -1,0 +1,107 @@
+# patches/0017-timeline-date-pill.patch
+#
+# Epic 2: Timeline Sticky Date Header (Time Travel UX)
+#
+# Adds a "Floating Date Pill" — a rounded, themed pill anchored at the
+# top-center of the timeline view that shows the formatted date of the
+# message visible at the top of the viewport while the user scrolls.
+#
+# == Changes ==
+#
+# 1. resources/qml/MessageView.qml
+#    - Add a Rectangle (datePill) anchored at top-center of the chatRoot Item
+#    - Pill opacity is bound to chat.moving, chat.flicking, and a hold timer:
+#      visible during active scroll + 1.5s decoalescence fade-out
+#    - Label text reads the topmost delegate's timestamp via
+#      chat.itemAt(chat.contentX+10, chat.contentY+10) and formats it
+#      through topItem.room.formatDateSeparator() (same formatting pipeline
+#      used by TimelineSectionHeader for day separators)
+#    - Themed with palette.window background, palette.mid border, rounded
+#      full-pill shape, bold text, and a 200ms opacity transition
+#    - Z=200 to float above all timeline content
+#    - A Connections handler on chat.onMovementEnded restarts the hold timer
+#
+diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
+index abcdef1..abcdef2 100644
+--- a/resources/qml/MessageView.qml
++++ b/resources/qml/MessageView.qml
+@@ -754,11 +754,79 @@ Item {
+            right: scrollbar.left
+            rightMargin: Nheko.paddingMedium + (fullWidth - width) / 2
+        }
++    // Floating date pill — contextual date label while scrolling
++    Rectangle {
++        id: datePill
++
++        anchors {
++            horizontalCenter: parent.horizontalCenter
++            top: parent.top
++            topMargin: Nheko.paddingMedium
++        }
++
++        color: palette.window
++        border.color: palette.mid
++        border.width: 1
++
++        height: 28
++        // Visible during active scroll + brief hold after stop
++        opacity: (chat.moving || chat.flicking || datePillTimer.running) ? 1.0 : 0.0
++        radius: height / 2
++        visible: opacity > 0
++        width: dateLabel.implicitWidth + Nheko.paddingMedium * 2
++        z: 200
++
++        Behavior on opacity {
++            NumberAnimation {
++                duration: 200
++                easing.type: Easing.InOutQuad
++            }
++        }
++
++        Label {
++            id: dateLabel
++
++            anchors.centerIn: parent
++            color: palette.text
++            font.bold: true
++            font.pointSize: fontMetrics.font.pointSize * 0.9
++            // Read the topmost visible delegate's timestamp and format it
++            // using the same pipeline as TimelineSectionHeader date pills.
++            text: {
++                var topItem = chat.itemAt(chat.contentX + 10, chat.contentY + 10);
++                if (topItem && topItem.room && topItem.timestamp) {
++                    return topItem.room.formatDateSeparator(topItem.timestamp);
++                }
++                return "";
++            }
++        }
++    }
++
++    Timer {
++        id: datePillTimer
++
++        // Keep the pill visible for 1.5 s after the user stops scrolling
++        // so the date label doesn't abruptly vanish.
++        interval: 1500
++        repeat: false
++    }
++
++    // Restart the hold timer whenever scroll-decay finishes.
++    // The pill's opacity binding (above) naturally keeps it visible
++    // during chat.moving / chat.flicking, then the timer extends the
++    // visibility window after movement ends.
++    Connections {
++        function onMovementEnded() {
++            datePillTimer.restart();
++        }
++
++        target: chat
++    }
+        Image {
+            anchors.fill: parent
+            anchors.margins: Nheko.paddingMedium
+            fillMode: Image.PreserveAspectFit
+            source: "image://colorimage/:/icons/icons/ui/download.svg?" + (toEndButton.down ? palette.highlightedText : palette.buttonText)
+        }
+    }
+}

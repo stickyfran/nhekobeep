@@ -376,16 +376,14 @@ index db4f2cb..c808487 100644
                  ImageButton {
                      id: logoutButton
  
-@@ -442,11 +456,29 @@ Page {
+@@ -442,11 +456,27 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
 -        //reuseItems: true
 +        reuseItems: true
 +        maximumFlickVelocity: 6000
-+        // Pre-fetch delegates for items ~3 screens ahead in scroll direction
-+        // so avatar images start loading before they come into view
-+        cacheBuffer: avatarSize * 20
++        cacheBuffer: Math.ceil(avatarSize * 5)
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
  
@@ -396,14 +394,14 @@ index db4f2cb..c808487 100644
 +            policy: ScrollBar.AlwaysOn
 +
 +            contentItem: Rectangle {
-+                implicitWidth: 8
-+                radius: 4
-+                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.4)
++                implicitWidth: 14
++                radius: 7
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
 +            }
 +
 +            background: Rectangle {
-+                implicitWidth: 8
-+                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.08)
++                implicitWidth: 14
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
 +            }
          }
          delegate: ItemDelegate {
