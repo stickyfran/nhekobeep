@@ -2615,25 +2615,25 @@ index ce2a8f8..27e0e52 100644
          } else if (role == Roles::RoomId) {
              return roomid;
          } else if (role == Roles::IsDirect) {
- -            return directChatToUser.count(roomid) > 0;
- +            if (directChatToUser.count(roomid) > 0) {
- +                // Beeper bridge groups (bot + 3+ real contacts = total > 4 members)
- +                // must NOT be treated as DMs so they populate into the Groups tab.
- +                const auto &netInfo = networkCache.value(roomid);
- +                if (!netInfo.name.isEmpty() && netInfo.activeMemberCount > 3)
- +                    return false;
- +                return true;
- +            }
- +
- +            // Fallback: check networkCache for bridged DMs not in directChatToUser.
- +            // Beeper bridge DMs (local user + bot + 1-2 counterparts = <=3 active members)
- +            // that aren't registered in m.direct should still be treated as direct.
- +            const auto &netInfo = networkCache.value(roomid);
- +            if (!netInfo.name.isEmpty() && !netInfo.counterpartMxid.isEmpty() &&
- +                netInfo.activeMemberCount <= 3) {
- +                return true;
- +            }
- +            return false;
+-            return directChatToUser.count(roomid) > 0;
++            if (directChatToUser.count(roomid) > 0) {
++                // Beeper bridge groups (bot + 3+ real contacts = total > 4 members)
++                // must NOT be treated as DMs so they populate into the Groups tab.
++                const auto &netInfo = networkCache.value(roomid);
++                if (!netInfo.name.isEmpty() && netInfo.activeMemberCount > 3)
++                    return false;
++                return true;
++            }
++
++            // Fallback: check networkCache for bridged DMs not in directChatToUser.
++            // Beeper bridge DMs (local user + bot + 1-2 counterparts = <=3 active members)
++            // that aren't registered in m.direct should still be treated as direct.
++            const auto &netInfo = networkCache.value(roomid);
++            if (!netInfo.name.isEmpty() && !netInfo.counterpartMxid.isEmpty() &&
++                netInfo.activeMemberCount <= 3) {
++                return true;
++            }
++            return false;
          } else if (role == Roles::DirectChatOtherUserId) {
              return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
                                                    : QLatin1String("");
