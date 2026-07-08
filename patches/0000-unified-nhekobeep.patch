@@ -200,10 +200,10 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..3e7c19e 100644
+index a134474..fb009ab 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
-@@ -29,12 +29,99 @@ Page {
+@@ -29,12 +29,98 @@ Page {
  
          target: MainWindow
      }
@@ -223,14 +223,15 @@ index a134474..3e7c19e 100644
 +                Layout.fillWidth: true
 +            }
 +
-+            ImageButton {
++            Button {
 +                id: createSpaceBtn
 +                Layout.preferredWidth: 22
 +                Layout.preferredHeight: 22
-+                image: ":/icons/icons/ui/plus.svg"
++                text: "+"
 +                ToolTip.text: qsTr("Create Space")
 +                ToolTip.visible: hovered
 +                hoverEnabled: true
++                flat: true
 +
 +                onClicked: createSpaceDialog.open()
 +
@@ -279,14 +280,15 @@ index a134474..3e7c19e 100644
 +                }
 +            }
 +
-+            ImageButton {
++            Button {
 +                id: collapseBtn
 +                Layout.preferredWidth: 22
 +                Layout.preferredHeight: 22
-+                image: ":/icons/icons/ui/collapse.svg"
++                text: "<"
 +                ToolTip.text: qsTr("Collapse sidebar")
 +                ToolTip.visible: hovered
 +                hoverEnabled: true
++                flat: true
 +
 +                onClicked: communitySidebar.collapsed = !communitySidebar.collapsed
 +            }
@@ -296,38 +298,44 @@ index a134474..3e7c19e 100644
      ListView {
          id: communitiesList
  
-         anchors.left: parent.left
-         anchors.right: parent.right
+-        anchors.left: parent.left
+-        anchors.right: parent.right
 -        height: parent.height
-+        anchors.top: sidebarHeader.bottom
-+        height: parent.height - sidebarHeader.height
++        anchors.fill: parent
          model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
-@@ -139,8 +226,66 @@ Page {
+@@ -46,6 +132,26 @@ Page {
+         delegate: ItemDelegate {
+             id: communityItem
+ 
++            // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
++            readonly property bool isEmojiIcon: {
++                var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                if (urlStr === "")
++                    return false;
++                // Strict check to prevent SVGs or resource paths from being rendered
++                // as text emojis. The string-matching hierarchy is:
++                //   1. Contains ".svg" (catches .svg, .svg?token=..., etc.)
++                //   2. Starts with "qrc:/" (explicit Qt resource path)
++                //   3. Contains ":/" (catches bare :/icons/... style resource paths)
++                //   4. Starts with "mxc://" or "image://" (Matrix content / image providers)
++                if (urlStr.indexOf(".svg") >= 0 ||
++                    urlStr.startsWith("qrc:/") ||
++                    urlStr.indexOf(":/") >= 0 ||
++                    urlStr.startsWith("mxc://") ||
++                    urlStr.startsWith("image://"))
++                    return false;
++                return true;
++            }
++
+             property color backgroundColor: palette.window
+             property color bubbleBackground: palette.highlight
+             property color bubbleText: palette.highlightedText
+@@ -139,8 +245,46 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
                      visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
-+
-+                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
-+                readonly property bool isEmojiIcon: {
-+                    var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
-+                    if (urlStr === "")
-+                        return false;
-+                    // Strict check to prevent SVGs or resource paths from being rendered
-+                    // as text emojis. The string-matching hierarchy is:
-+                    //   1. Contains ".svg" (catches .svg, .svg?token=..., etc.)
-+                    //   2. Starts with "qrc:/" (explicit Qt resource path)
-+                    //   3. Contains ":/" (catches bare :/icons/... style resource paths)
-+                    //   4. Starts with "mxc://" or "image://" (Matrix content / image providers)
-+                    if (urlStr.indexOf(".svg") >= 0 ||
-+                        urlStr.startsWith("qrc:/") ||
-+                        urlStr.indexOf(":/") >= 0 ||
-+                        urlStr.startsWith("mxc://") ||
-+                        urlStr.startsWith("image://"))
-+                        return false;
-+                    return true;
-+                }
 +
 +                // Emoji icon display (for custom label emoji icons).
 +                Item {
@@ -371,7 +379,7 @@ index a134474..3e7c19e 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +375,161 @@ Page {
+@@ -230,6 +374,161 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -622,23 +630,24 @@ index 84b34a7..656d643 100644
 +    }
  }
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
-index db4f2cb..0055bfd 100644
+index db4f2cb..66e549a 100644
 --- a/resources/qml/RoomList.qml
 +++ b/resources/qml/RoomList.qml
-@@ -227,6 +227,20 @@ Page {
+@@ -227,6 +227,21 @@ Page {
                  }
                  Item {
                  }
-+                ImageButton {
++                Button {
 +                    id: unreadSortToggle
 +
 +                    Layout.alignment: Qt.AlignVCenter
 +                    Layout.preferredHeight: fontMetrics.lineSpacing * 1.5
-+                    Layout.preferredWidth: fontMetrics.lineSpacing * 1.5
++                    implicitWidth: fontMetrics.lineSpacing * 4
 +                    ToolTip.delay: Nheko.tooltipDelay
 +                    ToolTip.text: Settings.sortUnreadFirst ? qsTr("Unread first: ON") : qsTr("Unread first: OFF")
 +                    ToolTip.visible: hovered
-+                    image: Settings.sortUnreadFirst ? ":/icons/icons/ui/sort-down.svg" : ":/icons/icons/ui/sort.svg"
++                    text: qsTr("Unread")
++                    flat: true
 +                    visible: !collapsed
 +
 +                    onClicked: Settings.sortUnreadFirst = !Settings.sortUnreadFirst
@@ -646,7 +655,7 @@ index db4f2cb..0055bfd 100644
                  ImageButton {
                      id: logoutButton
  
-@@ -442,11 +456,29 @@ Page {
+@@ -442,11 +457,29 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
@@ -678,7 +687,7 @@ index db4f2cb..0055bfd 100644
          }
          delegate: ItemDelegate {
              id: roomItem
-@@ -467,6 +499,9 @@ Page {
+@@ -467,6 +500,9 @@ Page {
              required property string roomId
              required property string roomName
              required property var tags
@@ -688,7 +697,7 @@ index db4f2cb..0055bfd 100644
              required property string time
              property color unimportantText: palette.buttonText
  
-@@ -563,7 +598,7 @@ Page {
+@@ -563,7 +599,7 @@ Page {
                      enabled: false
                      roomid: roomId
                      url: avatarUrl.replace("mxc://", "image://MxcImage/")
@@ -697,7 +706,7 @@ index db4f2cb..0055bfd 100644
                      Layout.preferredWidth: avatarSize
                      Layout.preferredHeight: avatarSize
  
-@@ -602,10 +637,47 @@ Page {
+@@ -602,10 +638,47 @@ Page {
  
                              anchors.left: parent.left
                              color: roomItem.importantText
@@ -746,7 +755,7 @@ index db4f2cb..0055bfd 100644
                          Label {
                              id: timestamp
  
-@@ -793,6 +865,11 @@ Page {
+@@ -793,6 +866,11 @@ Page {
  
                  onTriggered: Rooms.copyLink(roomContextMenu.roomid)
              }
@@ -758,7 +767,7 @@ index db4f2cb..0055bfd 100644
              Menu {
                  id: tagsMenu
  
-@@ -825,12 +902,65 @@ Page {
+@@ -825,12 +903,65 @@ Page {
                      onObjectAdded: (index, object) => tagsMenu.insertItem(index, object)
                      onObjectRemoved: (index, object) => tagsMenu.removeItem(object)
                  }
@@ -825,10 +834,10 @@ index db4f2cb..0055bfd 100644
                  id: rootSpaceMenu
  
 diff --git a/resources/qml/TopBar.qml b/resources/qml/TopBar.qml
-index cd20e94..799aee3 100644
+index cd20e94..522a97f 100644
 --- a/resources/qml/TopBar.qml
 +++ b/resources/qml/TopBar.qml
-@@ -285,6 +285,20 @@ Pane {
+@@ -285,6 +285,21 @@ Pane {
  
                          onTriggered: TimelineManager.openRoomSettings(roomId)
                      }
@@ -836,6 +845,7 @@ index cd20e94..799aee3 100644
 +                    MenuItem {
 +                        id: fetchHistoryItem
 +
++                        implicitHeight: 32
 +                        enabled: room && !room.fullHistoryFetching
 +                        text: room && room.fullHistoryFetching
 +                              ? qsTr("Fetching full history...")
