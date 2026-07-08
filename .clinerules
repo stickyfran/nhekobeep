@@ -37,6 +37,21 @@ You are prone to generating corrupt `.patch` files due to incorrect hunk math an
 
 ---
 
+## KHNOWN TYPE TRAPS — NHEKO INTERNAL DATA STRUCTURES
+
+Nheko wraps Matrix SDK types in its own `CacheStructs.h` using Qt types. **Always check the actual struct definition before assuming types.** The most common recurring mistake is:
+
+### `RoomMember::user_id` is `QString`, NOT `std::string`
+
+- Defined in [`nheko/src/CacheStructs.h`](nheko/src/CacheStructs.h) as `QString user_id;`
+- **DO NOT** write `QString::fromStdString(m.user_id)` — it is already `QString`
+- **DO NOT** write `m.user_id == local` where `local` is `std::string` — compare `QString` to `QString`
+- The same applies to `RoomMember::display_name` and `RoomMember::avatar_url` — all are `QString`
+
+**Root cause pattern:** AI models trained on standard Matrix SDK code (where `user_id` is typically `std::string`) will incorrectly assume Nheko's internal types match. **Always verify the actual struct/class declaration in `CacheStructs.h` before writing code that touches these fields.**
+
+---
+
 ### How to regenerate the unified patch after making changes:
 ```bash
 # 1. Clean nheko submodule

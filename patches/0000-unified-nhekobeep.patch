@@ -2475,12 +2475,12 @@ index ce2a8f8..f22f96a 100644
 +    int realContacts = 0;
 +
 +    if (models.contains(roomid)) {
-+        auto local = cache::client()->localUserId().toStdString();
++        auto local = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
 +        for (const auto &m : members) {
 +            if (m.user_id == local) continue;
-+            QString mxid = QString::fromStdString(m.user_id);
++            QString mxid = m.user_id;
 +            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
 +                isBeeperBridge = true;
 +                netInfo = beeperNetworkFromMxid(mxid);
