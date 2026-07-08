@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..c6545e6 100644
+index a134474..4f325ca 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -304,29 +304,22 @@ index a134474..c6545e6 100644
          model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
-@@ -139,8 +226,58 @@ Page {
+@@ -139,8 +226,56 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
                      visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
-+
-+                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
-+                readonly property bool isEmojiIcon: {
-+                    if (!model.avatarUrl || model.avatarUrl.length === 0)
-+                        return false;
-+                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
-+                    if (model.avatarUrl.startsWith("mxc://") ||
-+                        model.avatarUrl.startsWith(":/") ||
-+                        model.avatarUrl.startsWith("image://"))
-+                        return false;
-+                    return true;
-+                }
 +
 +                // Emoji icon display (for custom label emoji icons).
 +                Item {
 +                    Layout.alignment: Qt.AlignVCenter
 +                    Layout.preferredHeight: avatarSize
 +                    Layout.preferredWidth: avatarSize
-+                    visible: isEmojiIcon
++                    visible: {
++                        var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                        if (urlStr === "") return false;
++                        if (urlStr.includes(".svg") || urlStr.startsWith("qrc:/") || urlStr.startsWith("mxc://") || urlStr.startsWith("image://") || urlStr.startsWith(":/")) return false;
++                        return true;
++                    }
 +
 +                    Rectangle {
 +                        anchors.fill: parent
@@ -359,11 +352,16 @@ index a134474..c6545e6 100644
 +                // Standard avatar display (for MXC, SVG, and image provider icons).
                  Avatar {
                      id: avatar
-+                    visible: !isEmojiIcon
++                    visible: {
++                        var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                        if (urlStr === "") return true;
++                        if (urlStr.includes(".svg") || urlStr.startsWith("qrc:/") || urlStr.startsWith("mxc://") || urlStr.startsWith("image://") || urlStr.startsWith(":/")) return true;
++                        return false;
++                    }
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +367,129 @@ Page {
+@@ -230,6 +365,129 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -2261,7 +2259,7 @@ index 7af6d05..1155cb0 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..4657771 100644
+index ce2a8f8..0e8754a 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2494,37 +2492,42 @@ index ce2a8f8..4657771 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +959,68 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +959,75 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
 +void
 +RoomlistModel::updateNetworkCache(const QString &roomid)
 +{
-+    bool isBeeperBridge = false;
++    bool isBeeperBridge  = false;
 +    QString counterpart;
-+    BeeperNetworkInfo netInfo;
-+    int realContacts = 0;
++    int realContacts     = 0;
 +
 +    if (models.contains(roomid)) {
-+        auto local = cache::client()->localUserId();
++        auto local   = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
 +        for (const auto &m : members) {
-+            if (m.user_id == local) continue;
++            if (m.user_id == local)
++                continue;
 +
 +            QString mxid = m.user_id;
 +            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
 +                isBeeperBridge = true;
-+                netInfo = beeperNetworkFromMxid(mxid);
 +            } else {
 +                realContacts++;
-+                if (counterpart.isEmpty()) counterpart = mxid;
++                if (counterpart.isEmpty())
++                    counterpart = mxid;
 +            }
 +        }
 +    }
 +
 +    if (isBeeperBridge) {
++        // Extract network info from the REAL user (counterpart), NOT the bot.
++        // Bridge bots (e.g. @whatsappbot:beeper.local) don't match the prefix
++        // map keys (e.g. "whatsapp_"), leaving groups with empty names.
++        auto netInfo = beeperNetworkFromMxid(counterpart);
++
 +        if (realContacts > 1) {
 +            networkCache.insert(roomid, {netInfo.name, netInfo.color, QString(), 999});
 +        } else {
@@ -2532,6 +2535,8 @@ index ce2a8f8..4657771 100644
 +        }
 +        return;
 +    }
++
++    BeeperNetworkInfo netInfo;
 +
 +    if (directChatToUser.count(roomid)) {
 +        const auto &userId = directChatToUser.at(roomid).front();
@@ -2567,7 +2572,7 @@ index ce2a8f8..4657771 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1048,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1055,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2584,7 +2589,7 @@ index ce2a8f8..4657771 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1108,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1115,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2592,7 +2597,7 @@ index ce2a8f8..4657771 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1128,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1135,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2607,13 +2612,15 @@ index ce2a8f8..4657771 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1092,6 +1290,15 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+@@ -1092,6 +1297,17 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
              return false;
          }
  
 +        // --- CASOS ESPECIALES BEEPER ---
 +        if (filterStr == QLatin1String("virtual:unread")) {
-+            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
++            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages).toBool() ||
++                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0 ||
++                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::UnreadMessages).toInt() > 0;
 +        }
 +        if (filterStr == QLatin1String("virtual:groups")) {
 +            return !sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect).toBool();
@@ -2623,7 +2630,7 @@ index ce2a8f8..4657771 100644
          auto tags = sourceModel()
                        ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
                        .toStringList();
-@@ -1200,6 +1407,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1416,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
