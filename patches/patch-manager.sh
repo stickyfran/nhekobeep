@@ -3,8 +3,10 @@
 # Nheko Patch Manager — One-shot build
 # ============================================================================
 # Usage:
-#   ./patches/patch-manager.sh         # Full: update → clean → patch → build
-#   ./patches/patch-manager.sh build   # Build only (skip patch/update)
+#   ./patches/patch-manager.sh              # Full: update → clean → patch → build
+#   ./patches/patch-manager.sh build        # Build only (skip update/clean/patch)
+#   ./patches/patch-manager.sh rebuild      # Clean + build (skip update/patch)
+#   ./patches/patch-manager.sh clean        # Remove build directory only
 # ============================================================================
 set -euo pipefail
 
@@ -140,15 +142,52 @@ do_build() {
 
 # ── Main ────────────────────────────────────────────────────────────────────
 main() {
-    if [[ "${1:-}" == "build" ]]; then
-        # Build only (skip update/clean/patch)
-        if [[ ! -d "$BUILD_DIR" ]]; then
+    case "${1:-}" in
+        build)
+            # Build only (skip update/clean/patch)
+            if [[ ! -d "$BUILD_DIR" ]]; then
+                configure_cmake
+            fi
+            do_build
+            echo -e "\n${GREEN}${BOLD}Done!${NC}"
+            exit 0
+            ;;
+        clean)
+            # Remove build directory only
+            echo ""
+            echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+            echo -e "${BOLD}║       Nheko Clean Build Directory               ║${NC}"
+            echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+            echo ""
+            clean_build
+            echo -e "\n${GREEN}${BOLD}Done!${NC}"
+            exit 0
+            ;;
+        rebuild)
+            # Clean + build (skip update/patch)
+            echo ""
+            echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+            echo -e "${BOLD}║       Nheko Clean Rebuild                       ║${NC}"
+            echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "${BOLD}[1/3] Cleaning${NC}"
+            clean_build
+            echo ""
+            echo -e "${BOLD}[2/3] Configuring cmake${NC}"
             configure_cmake
-        fi
-        do_build
-        echo -e "\n${GREEN}${BOLD}Done!${NC}"
-        exit 0
-    fi
+            echo ""
+            echo -e "${BOLD}[3/3] Building${NC}"
+            if do_build; then
+                echo ""
+                echo -e "${GREEN}${BOLD}✓ Complete! Binary: $BUILD_DIR/nheko${NC}"
+            else
+                echo ""
+                echo -e "${RED}${BOLD}✗ Build failed${NC}"
+                exit 1
+            fi
+            exit 0
+            ;;
+    esac
 
     # Full workflow
     echo ""
