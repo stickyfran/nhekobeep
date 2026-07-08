@@ -1,33 +1,13 @@
 diff --git a/.ci/format.sh b/.ci/format.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/install.sh b/.ci/install.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/licenses.sh b/.ci/licenses.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/linux/deploy.sh b/.ci/linux/deploy.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/macos/build.sh b/.ci/macos/build.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/macos/notarize.sh b/.ci/macos/notarize.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/script.sh b/.ci/script.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/update-github-release.sh b/.ci/update-github-release.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/upload-nightly-gitlab.sh b/.ci/upload-nightly-gitlab.sh
-old mode 100755
-new mode 100644
 diff --git a/.ci/upload-nightly.sh b/.ci/upload-nightly.sh
-old mode 100755
-new mode 100644
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 8122313..500ef29 100644
 --- a/CMakeLists.txt
@@ -200,9 +180,17 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..4d4041c 100644
+index a134474..5c24197 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
+@@ -202,6 +202,7 @@
+             property string tagId
+ 
+             function show(parent, id_, hidden_, muted_) {
++                console.log("[BEEPER-DEBUG] Context menu opened tagId=" + id_ + " hidden=" + hidden_ + " muted=" + muted_);
+                 tagId = id_;
+                 hidden = hidden_;
+                 muted = muted_;
 @@ -29,12 +29,98 @@ Page {
  
          target: MainWindow
@@ -250,14 +238,12 @@ index a134474..4d4041c 100644
 +                        Label { text: qsTr("Name:") }
 +                        TextField {
 +                            id: spaceNameField
-+                            placeholderText: qsTr("My Space")
 +                            Layout.fillWidth: true
 +                        }
 +
 +                        Label { text: qsTr("Topic (optional):") }
 +                        TextField {
 +                            id: spaceTopicField
-+                            placeholderText: qsTr("Description of this space")
 +                            Layout.fillWidth: true
 +                        }
 +
@@ -302,7 +288,6 @@ index a134474..4d4041c 100644
 -        anchors.right: parent.right
 -        height: parent.height
 +        anchors.fill: parent
-         model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
 @@ -46,6 +132,26 @@ Page {
@@ -311,7 +296,6 @@ index a134474..4d4041c 100644
  
 +            // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
 +            readonly property bool isEmojiIcon: {
-+                var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
 +                if (urlStr === "")
 +                    return false;
 +                // Strict check to prevent SVGs or resource paths from being rendered
@@ -334,7 +318,6 @@ index a134474..4d4041c 100644
              property color bubbleText: palette.highlightedText
 @@ -139,8 +245,46 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
-                     visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
 +
 +                // Emoji icon display (for custom label emoji icons).
@@ -351,7 +334,6 @@ index a134474..4d4041c 100644
 +
 +                        Label {
 +                            anchors.centerIn: parent
-+                            text: model.avatarUrl
 +                            font.pixelSize: avatarSize * 0.55
 +                            horizontalAlignment: Text.AlignHCenter
 +                            verticalAlignment: Text.AlignVCenter
@@ -366,9 +348,6 @@ index a134474..4d4041c 100644
 +                        bubbleBackgroundColor: communityItem.bubbleBackground
 +                        bubbleTextColor: communityItem.bubbleText
 +                        font.pixelSize: fontMetrics.font.pixelSize * 0.6
-+                        hasLoudNotification: model.hasLoudNotification
-+                        mayBeVisible: communitySidebar.collapsed && !model.muted && Settings.spaceNotifications
-+                        notificationCount: model.unreadMessages
 +                    }
 +                }
 +
@@ -379,15 +358,7 @@ index a134474..4d4041c 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -203,6 +347,7 @@ Page {
-             property string tagId
- 
-             function show(parent, id_, hidden_, muted_) {
-+                console.log("[BEEPER-DEBUG] Context menu opened tagId=" + id_ + " hidden=" + hidden_ + " muted=" + muted_);
-                 tagId = id_;
-                 hidden = hidden_;
-                 muted = muted_;
-@@ -230,6 +375,136 @@ Page {
+@@ -230,6 +374,136 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -423,14 +394,12 @@ index a134474..4d4041c 100644
 +                            Label { text: qsTr("Name:") }
 +                            TextField {
 +                                id: editSpaceNameField
-+                                placeholderText: qsTr("New space name")
 +                                Layout.fillWidth: true
 +                            }
 +            
 +                            Label { text: qsTr("Topic:") }
 +                            TextField {
 +                                id: editSpaceTopicField
-+                                placeholderText: qsTr("New space topic")
 +                                Layout.fillWidth: true
 +                            }
 +                        }
@@ -464,75 +433,78 @@ index a134474..4d4041c 100644
 +            }
 +            MenuSeparator {}
 +            MenuItem {
-+                readonly property string pureTag: communityContextMenu.tagId ? (communityContextMenu.tagId.startsWith("tag:") ? communityContextMenu.tagId.substring(4) : communityContextMenu.tagId) : ""
++                readonly property string pureTag: communityContextMenu.tagId.startsWith("tag:") ? communityContextMenu.tagId.substring(4) : communityContextMenu.tagId
 +
 +                text: qsTr("Edit Label...")
-+                // Show for any tag that already has a custom label OR any raw Beeper folder
-+                visible: CustomLabelListModel.displayNameForTag(pureTag) !== "" || pureTag.startsWith("u.")
-+                onTriggered: {
-+                    editCustomLabelDialog.activeTag = pureTag;
-+                    editLabelNameField.text = CustomLabelListModel.displayNameForTag(pureTag);
-+                    editLabelIconField.text = CustomLabelListModel.iconKeyForTag(pureTag);
-+                    editCustomLabelDialog.open();
++                visible: {
++                    var displayName = CustomLabelListModel.displayNameForTag(pureTag);
++                    var rc = (typeof CustomLabelListModel.rowCount === 'function') ? CustomLabelListModel.rowCount() : -1;
++                    console.log("[BEEPER-DEBUG] EditLabel visibilityCheck tagId=" + communityContextMenu.tagId + " pureTag=" + pureTag + " displayNameForTag='" + displayName + "' startsWithU=" + pureTag.startsWith("u.") + " rowCount=" + rc);
++                    return displayName !== "" || pureTag.startsWith("u.");
 +                }
-+            }
-+        }
-+    }
++                onTriggered: {
++                    console.log("[BEEPER-DEBUG] EditLabel triggered tagId=" + communityContextMenu.tagId + " pureTag=" + pureTag);
++                    var dialog = editCustomLabelComponent.createObject(communitySidebar, {
++                        "labelTag": pureTag
++                    });
++                    dialog.open();
++                }
 +
-+    // Global dialog - placed outside the menu context to prevent silent destruction
-+    // when the context menu closes. Uses Overlay.overlay as parent for proper
-+    // modal layering.
-+    Dialog {
-+        id: editCustomLabelDialog
-+        property string activeTag: ""
-+        title: qsTr("Edit Label: ") + activeTag
-+        standardButtons: Dialog.Save | Dialog.Cancel
-+        modal: true
-+        anchors.centerIn: parent
-+        width: 350
-+        parent: Overlay.overlay
++                Component {
++                    id: editCustomLabelComponent
 +
-+        ColumnLayout {
-+            spacing: Nheko.paddingMedium
-+            width: parent ? parent.width : 300
++                    Dialog {
++                        id: editCustomLabelDialog
++                        property string labelTag: ""
++                        title: qsTr("Edit Label: ") + labelTag
++                        standardButtons: Dialog.Save | Dialog.Cancel
++                        modal: true
++                        anchors.centerIn: parent
++                        width: 350
 +
-+            Label { text: qsTr("Display Name:") }
-+            TextField {
-+                id: editLabelNameField
-+                placeholderText: qsTr("Label name")
-+                Layout.fillWidth: true
-+            }
++                        ColumnLayout {
++                            spacing: Nheko.paddingMedium
++                            width: parent ? parent.width : 300
 +
-+            Label { text: qsTr("Icon (emoji or path):") }
-+            TextField {
-+                id: editLabelIconField
-+                placeholderText: qsTr(":/icons/... or emoji")
-+                Layout.fillWidth: true
-+            }
-+        }
++                            Label { text: qsTr("Display Name:") }
++                            TextField {
++                                id: editLabelNameField
++                                text: CustomLabelListModel.displayNameForTag(editCustomLabelDialog.labelTag)
++                                Layout.fillWidth: true
++                            }
 +
-+        onAccepted: {
-+            if (editLabelNameField.text.length > 0) {
-+                CustomLabelListModel.addLabel(
-+                    activeTag,
-+                    editLabelNameField.text,
-+                    editLabelIconField.text.length > 0 ? editLabelIconField.text : "");
++                            Label { text: qsTr("Icon (emoji or path):") }
++                            TextField {
++                                id: editLabelIconField
++                                text: CustomLabelListModel.iconKeyForTag(editCustomLabelDialog.labelTag)
++                                Layout.fillWidth: true
++                            }
++                        }
 +
-+                // Force sidebar redraw so icons appear immediately
-+                Communities.initializeSidebar();
++                        onAccepted: {
++                            if (editLabelNameField.text.length > 0) {
++                                // addLabel handles upsert internally; no row index needed.
++                                CustomLabelListModel.addLabel(
++                                    editCustomLabelDialog.labelTag,
++                                    editLabelNameField.text,
++                                    editLabelIconField.text.length > 0 ? editLabelIconField.text : "");
++                            }
++                        }
++                    }
++                }
 +            }
          }
      }
  }
 diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
-index 84b34a7..d622db1 100644
+index 84b34a7..656d643 100644
 --- a/resources/qml/MessageView.qml
 +++ b/resources/qml/MessageView.qml
 @@ -761,4 +761,83 @@ Item {
              source: "image://colorimage/:/icons/icons/ui/download.svg?" + (toEndButton.down ? palette.highlightedText : palette.buttonText)
          }
      }
-+    // Floating date pill ???????? contextual date label while scrolling.
++    // Floating date pill â€” contextual date label while scrolling.
 +    // Anchored at the top-center of chatRoot, above all timeline content.
 +    Rectangle {
 +        id: datePill
@@ -548,7 +520,6 @@ index 84b34a7..d622db1 100644
 +        border.width: 1
 +
 +        height: 28
-+        // Visible during active scroll + brief 1.5s hold after stop.
 +        // contentY changes also restart the timer so the pill stays visible
 +        // while the user is still actively scrolling.
 +        opacity: (chat.moving || chat.flicking || datePillTimer.running) ? 1.0 : 0.0
@@ -569,7 +540,6 @@ index 84b34a7..d622db1 100644
 +
 +            anchors.centerIn: parent
 +            color: palette.text
-+            font.bold: true
 +            font.pointSize: fontMetrics.font.pointSize * 0.9
 +            // Read the topmost visible delegate's timestamp and format it
 +            // using the same pipeline as TimelineSectionHeader date separators.
@@ -592,7 +562,6 @@ index 84b34a7..d622db1 100644
 +        repeat: false
 +    }
 +
-+    // Restart the hold timer whenever scroll-decay finishes.
 +    // The pill's opacity binding naturally keeps it visible during
 +    // chat.moving / chat.flicking, then the timer extends visibility
 +    // after movement ends.
@@ -639,7 +608,6 @@ index db4f2cb..66e549a 100644
                      id: logoutButton
  
 @@ -442,11 +457,29 @@ Page {
-         model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
 -        //reuseItems: true
@@ -730,7 +698,6 @@ index db4f2cb..66e549a 100644
 +
 +                                anchors.centerIn: parent
 +                                color: beeperBadge.isLightColor ? "#000000" : "#ffffff"
-+                                font.bold: true
 +                                font.pixelSize: fontMetrics.font.pixelSize * 0.65
 +                                text: beeperNetwork
 +                            }
@@ -760,14 +727,11 @@ index db4f2cb..66e549a 100644
 +                }
 +
 +                Instantiator {
-+                    model: CustomLabelListModel
 +
 +                    delegate: MenuItem {
-+                        property string t: model.tag
 +
 +                        checkable: true
 +                        checked: roomContextMenu.tags !== undefined && roomContextMenu.tags.includes(t)
-+                        text: model.displayName
 +
 +                        onTriggered: Rooms.toggleTag(roomContextMenu.roomid, t, checked)
 +                    }
@@ -780,9 +744,7 @@ index db4f2cb..66e549a 100644
 +                }
 +
                  MenuItem {
-                     text: qsTr("Create new tag...")
  
-                     onTriggered: newTag.show()
                  }
              }
 +            Menu {
@@ -791,21 +753,14 @@ index db4f2cb..66e549a 100644
 +                title: qsTr("Add to Space...")
 +
 +                Instantiator {
-+                    model: Communities.allSpacesForRoom(roomContextMenu.roomid)
 +
 +                    delegate: MenuItem {
-+                        required property var modelData
 +
 +                        checkable: true
-+                        checked: modelData.childValid
-+                        text: modelData.name
-+                        enabled: modelData.canEditChild
 +
 +                        onTriggered: {
 +                            if (checked)
-+                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, true, true, false);
 +                            else
-+                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, false, false, false);
 +                        }
 +                    }
 +
@@ -885,7 +840,6 @@ index 8f51e66..94421de 100644
 +
                          DelegateChoice {
                              Text {
-                                 text: model.value
 @@ -263,6 +296,161 @@ Rectangle {
          }
      }
@@ -904,7 +858,6 @@ index 8f51e66..94421de 100644
 +
 +            Label {
 +                text: qsTr("Are you sure you want to perform a full Beeper re-initialization?")
-+                font.bold: true
 +                color: Nheko.theme.error
 +                wrapMode: Text.WordWrap
 +                Layout.fillWidth: true
@@ -951,7 +904,6 @@ index 8f51e66..94421de 100644
 +                    spacing: Nheko.paddingSmall
 +
 +                    Repeater {
-+                        model: CustomLabelListModel
 +
 +                        delegate: RowLayout {
 +                            Layout.fillWidth: true
@@ -959,32 +911,25 @@ index 8f51e66..94421de 100644
 +
 +                            TextField {
 +                                Layout.fillWidth: true
-+                                text: model.displayName
-+                                placeholderText: qsTr("Display Name")
 +                                onTextChanged: CustomLabelListModel.updateLabel(
-+                                    index, model.tag, text, model.iconKey)
 +                            }
 +
 +                            ComboBox {
 +                                id: iconCombo
 +                                Layout.preferredWidth: 120
-+                                model: CustomLabelListModel.availableIcons()
 +                                currentIndex: {
 +                                    var icons = CustomLabelListModel.availableIcons();
-+                                    return Math.max(0, icons.indexOf(model.iconKey));
 +                                }
 +                                onCurrentIndexChanged: {
 +                                    if (currentIndex >= 0) {
 +                                        var icons = CustomLabelListModel.availableIcons();
 +                                        CustomLabelListModel.updateLabel(
-+                                            index, model.tag, model.displayName,
 +                                            icons[currentIndex]);
 +                                    }
 +                                }
 +                            }
 +
 +                            Label {
-+                                text: model.tag
 +                                color: palette.buttonText
 +                                font.pixelSize: fontMetrics.font.pixelSize * 0.85
 +                                Layout.preferredWidth: 80
@@ -1022,22 +967,16 @@ index 8f51e66..94421de 100644
 +                    spacing: Nheko.paddingMedium
 +                    Label { text: qsTr("Tag:") }
 +                    TextField {
-+                        id: newTagField
-+                        placeholderText: "u.mylabel"
 +                        Layout.fillWidth: true
 +                    }
 +                    Label { text: qsTr("Display Name:") }
 +                    TextField {
-+                        id: newNameField
-+                        placeholderText: qsTr("My Label")
 +                        Layout.fillWidth: true
 +                    }
 +                }
 +
 +                onAccepted: {
-+                    if (newTagField.text && newNameField.text) {
 +                        CustomLabelListModel.addLabel(
-+                            newTagField.text, newNameField.text,
 +                            ":/icons/icons/ui/tag.svg");
 +                    }
 +                }
@@ -1065,23 +1004,11 @@ index 8f51e66..94421de 100644
  }
  
 diff --git a/scripts/archive.sh b/scripts/archive.sh
-old mode 100755
-new mode 100644
 diff --git a/scripts/emoji_codegen.py b/scripts/emoji_codegen.py
-old mode 100755
-new mode 100644
 diff --git a/scripts/flat-manager-client b/scripts/flat-manager-client
-old mode 100755
-new mode 100644
 diff --git a/scripts/generate_icns.sh b/scripts/generate_icns.sh
-old mode 100755
-new mode 100644
 diff --git a/scripts/includemocs.py b/scripts/includemocs.py
-old mode 100755
-new mode 100644
 diff --git a/scripts/upload-to-flatpak-repo.sh b/scripts/upload-to-flatpak-repo.sh
-old mode 100755
-new mode 100644
 diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
 index 4608aca..aa2a2c1 100644
 --- a/src/AvatarProvider.cpp
@@ -1095,7 +1022,6 @@ index 4608aca..aa2a2c1 100644
 +static QObject *
 +prewarmReceiver()
 +{
-+    static QObject *r = new QObject;
 +    return r;
 +}
 +
@@ -1193,7 +1119,6 @@ index 0f621df..3f52dd1 100644
 +//
 +// Beeper "fake DM" detection helpers.
 +//
-+// Beeper bridges (Instagram, WhatsApp, etc.) model 1:1 chats as 3-member
 +// rooms: <local user, real contact, @<service>bot:beeper.<tld>>. These
 +// helpers identify the bridge bot and the real counterpart so we can
 +// render the room as a native Matrix DM instead of a tiny group.
@@ -2492,7 +2417,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..f6cd037 100644
+index ce2a8f8..a514d96 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2692,7 +2617,6 @@ index ce2a8f8..f6cd037 100644
 @@ -374,6 +497,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
                (int)(roomids.size() + previewsToAdd.size() - ((wasInvite || wasPreview) ? 1 : 0)));
  
-         models.insert(room_id, std::move(newRoom));
 +        updateNetworkCache(room_id);
          if (wasInvite) {
              auto idx = roomidToIndex(room_id);
@@ -2714,7 +2638,6 @@ index ce2a8f8..f6cd037 100644
      }
 @@ -559,8 +687,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
          for (const auto &e : room.account_data.events) {
-             if (std::holds_alternative<
                    mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
 -                if (auto idx = roomidToIndex(qroomid); idx != -1)
 -                    emit dataChanged(index(idx), index(idx), {Tags});
@@ -2736,16 +2659,14 @@ index ce2a8f8..f6cd037 100644
 +
  #ifdef NHEKO_DBUS_SYS
      if (MainWindow::instance()->dbusAvailable()) {
-         dbusInterface_ = new NhekoDBusBackend{this};
 @@ -653,6 +788,7 @@ RoomlistModel::clear()
-     models.clear();
      invites.clear();
      roomids.clear();
 +    networkCache.clear();
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +964,99 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +964,85 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
@@ -2762,7 +2683,6 @@ index ce2a8f8..f6cd037 100644
 +    BeeperNetworkInfo netInfo;
 +    int activeMembers = 0;
 +
-+    if (models.contains(roomid)) {
 +        auto local   = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
@@ -2849,7 +2769,7 @@ index ce2a8f8..f6cd037 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1084,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1070,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2866,15 +2786,12 @@ index ce2a8f8..f6cd037 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1144,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
 +    this->sortUnreadFirst  = UserSettings::instance()->sortUnreadFirst();
-     setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1164,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2886,10 +2803,9 @@ index ce2a8f8..f6cd037 100644
 +                         invalidate();
 +                     });
 +
-     connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1173,6 +1407,49 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+@@ -1173,6 +1393,39 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
          }
  
          return true;
@@ -2939,7 +2855,7 @@ index ce2a8f8..f6cd037 100644
      } else {
          return true;
      }
-@@ -1200,6 +1477,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1453,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2992,7 +2908,7 @@ index ce2a8f8..f6cd037 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..0bc5475 100644
+index 7dfeb70..ba313ee 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -3060,30 +2976,24 @@ index 7dfeb70..0bc5475 100644
      NhekoDBusBackend *dbusInterface_;
      friend class NhekoDBusBackend;
 @@ -195,6 +217,7 @@ public slots:
-     void leave(QString roomid, QString reason = "") { roomlistmodel->leave(roomid, reason); }
      void toggleTag(const QString &roomid, const QString &tag, bool on);
      void copyLink(QString roomid);
 +    Q_INVOKABLE QColor networkColorForMxid(const QString &mxid) const;
  
-     TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
-     RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
-@@ -216,7 +239,13 @@ public slots:
-         beginFilterChange();
- #endif
- 
--        if (tagId.startsWith(QLatin1String("tag:"))) {
-+        if (tagId == QLatin1String("tag:virtual:unread")) {
+@@ -226,6 +249,12 @@ public slots:
+         } else if (tagId.startsWith(QLatin1String("dm"))) {
+             filterType = FilterBy::DirectChats;
+             filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:unread")) {
 +            filterType = FilterBy::VirtualUnread;
 +            filterStr.clear();
 +        } else if (tagId == QLatin1String("tag:virtual:groups")) {
 +            filterType = FilterBy::VirtualGroups;
 +            filterStr.clear();
-+        } else if (tagId.startsWith(QLatin1String("tag:"))) {
-             filterType = FilterBy::Tag;
-             filterStr  = tagId.mid(4);
-         } else if (tagId.startsWith(QLatin1String("space:"))) {
+         } else {
+             filterType = FilterBy::Nothing;
+             filterStr.clear();
 @@ -248,12 +277,15 @@ private:
-     RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
 +    bool sortUnreadFirst  = false;
@@ -3166,7 +3076,6 @@ index 6233682..0fd1671 100644
 +              return;
 +          }
 +
-+          emit events.oldMessagesRetrieved(res);
 +
 +          if (res.end.empty() || res.end == token) {
 +              nhlog::ui()->info("fetchFullRoomHistory: Completed for room {}",
@@ -3222,7 +3131,6 @@ index 6233682..0fd1671 100644
 +        int total = 0;
 +        int totalEvents = events.size();
 +    
-+        // Iterate from oldest (0) to newest (size()-1)
 +        for (int i = 0; i < totalEvents; ++i) {
 +            const auto evt = events.get(i);
 +            if (!evt)
@@ -3261,7 +3169,6 @@ index 6233682..0fd1671 100644
 +        out << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">\n"
 +            << "<title>Chat History - " << plainRoomName().toHtmlEscaped() << "</title>\n"
 +            << "<style>body{font-family:sans-serif;max-width:800px;margin:auto;padding:20px}"
-+            << ".msg{margin:8px 0}.time{color:#888;font-size:0.85em}.sender{font-weight:bold}"
 +            << "</style></head><body>\n"
 +            << "<h1>" << plainRoomName().toHtmlEscaped() << "</h1>\n"
 +            << "<p>Room: " << roomId().toHtmlEscaped() << "</p>\n"
@@ -3351,7 +3258,6 @@ index db7cee5..8ef0449 100644
      bool paginationInProgress() const { return m_paginationInProgress; }
 +    bool fullHistoryFetching() const { return m_fullHistoryFetching; }
      QString reply() const { return reply_; }
-     void setReply(const QString &newReply);
      void resetReply()
 @@ -466,8 +473,9 @@ public slots:
      void markSpecialEffectsDone();
@@ -3370,7 +3276,6 @@ index db7cee5..8ef0449 100644
      void showRawMessageDialog(QString rawMessage);
      void paginationInProgressChanged(const bool);
 +    void fullHistoryFetchingChanged();
-     void newCallEvent(const mtx::events::collections::TimelineEvents &event);
      void scrollToIndex(int index);
      void confetti();
 @@ -555,6 +564,7 @@ private:
@@ -3438,8 +3343,6 @@ index d05b6f6..84d7158 100644
 +void
 +UserProfile::downloadChatHistory()
 +{
-+    if (!model) {
-+        emit displayError(tr("No room model available."));
 +        return;
 +    }
 +
@@ -3457,7 +3360,6 @@ index d05b6f6..84d7158 100644
 +    else if (filePath.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive))
 +        format = QStringLiteral("json");
 +
-+    model->exportChatHistory(filePath, format);
 +}
 +
  #include "moc_UserProfile.cpp"
