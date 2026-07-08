@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..036bf1f 100644
+index a134474..d2c95b4 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -363,7 +363,7 @@ index a134474..036bf1f 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +367,89 @@ Page {
+@@ -230,6 +367,123 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -448,6 +448,40 @@ index a134474..036bf1f 100644
 +                enabled: communityContextMenu.tagId.startsWith("space:")
 +                onTriggered: {
 +                    Communities.deleteSpace(communityContextMenu.tagId.toString().substring(6));
++                }
++            }
++        }
++
++        Dialog {
++            id: editCustomLabelDialog
++            property string activeTag
++
++            title: qsTr("Edit Label")
++            standardButtons: Dialog.Ok | Dialog.Cancel
++            modal: true
++            anchors.centerIn: parent
++            width: 350
++
++            onAccepted: {
++                CustomLabelListModel.updateLabel(activeTag, editLabelNameField.text, editLabelIconField.text);
++            }
++
++            ColumnLayout {
++                spacing: Nheko.paddingMedium
++                width: parent ? parent.width : 300
++
++                Label { text: qsTr("Name:") }
++                TextField {
++                    id: editLabelNameField
++                    placeholderText: qsTr("Label name")
++                    Layout.fillWidth: true
++                }
++
++                Label { text: qsTr("Icon key:") }
++                TextField {
++                    id: editLabelIconField
++                    placeholderText: qsTr("Icon path or emoji")
++                    Layout.fillWidth: true
 +                }
 +            }
          }
