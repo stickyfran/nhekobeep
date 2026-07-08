@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..d2c95b4 100644
+index a134474..c6545e6 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -363,7 +363,7 @@ index a134474..d2c95b4 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +367,123 @@ Page {
+@@ -230,6 +367,129 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -454,34 +454,40 @@ index a134474..d2c95b4 100644
 +
 +        Dialog {
 +            id: editCustomLabelDialog
-+            property string activeTag
-+
-+            title: qsTr("Edit Label")
-+            standardButtons: Dialog.Ok | Dialog.Cancel
++            property string activeTag: ""
++            title: qsTr("Edit Label: ") + activeTag
++            standardButtons: Dialog.Save | Dialog.Cancel
 +            modal: true
 +            anchors.centerIn: parent
 +            width: 350
-+
-+            onAccepted: {
-+                CustomLabelListModel.updateLabel(activeTag, editLabelNameField.text, editLabelIconField.text);
-+            }
 +
 +            ColumnLayout {
 +                spacing: Nheko.paddingMedium
 +                width: parent ? parent.width : 300
 +
-+                Label { text: qsTr("Name:") }
++                Label { text: qsTr("Display Name:") }
 +                TextField {
 +                    id: editLabelNameField
 +                    placeholderText: qsTr("Label name")
 +                    Layout.fillWidth: true
 +                }
 +
-+                Label { text: qsTr("Icon key:") }
++                Label { text: qsTr("Icon (emoji or path):") }
 +                TextField {
 +                    id: editLabelIconField
-+                    placeholderText: qsTr("Icon path or emoji")
++                    placeholderText: qsTr("💼 or :/icons/...")
 +                    Layout.fillWidth: true
++                }
++            }
++
++            onAccepted: {
++                if (editLabelNameField.text.length > 0) {
++                    CustomLabelListModel.addLabel(
++                        activeTag,
++                        editLabelNameField.text,
++                        editLabelIconField.text.length > 0 ? editLabelIconField.text : "");
++                    
++                    Communities.initializeSidebar();
 +                }
 +            }
          }
@@ -2255,7 +2261,7 @@ index 7af6d05..1155cb0 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..feaca26 100644
+index ce2a8f8..4657771 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2601,7 +2607,23 @@ index ce2a8f8..feaca26 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1200,6 +1398,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1092,6 +1290,15 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+             return false;
+         }
+ 
++        // --- CASOS ESPECIALES BEEPER ---
++        if (filterStr == QLatin1String("virtual:unread")) {
++            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
++        }
++        if (filterStr == QLatin1String("virtual:groups")) {
++            return !sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect).toBool();
++        }
++        // -------------------------------
++
+         auto tags = sourceModel()
+                       ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
+                       .toStringList();
+@@ -1200,6 +1407,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
