@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..336685e 100644
+index a134474..036bf1f 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -363,7 +363,7 @@ index a134474..336685e 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +367,97 @@ Page {
+@@ -230,6 +367,89 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -422,23 +422,15 @@ index a134474..336685e 100644
 +                }
 +            }
 +            MenuItem {
++                readonly property string pureTag: communityContextMenu.tagId ? (communityContextMenu.tagId.startsWith("tag:") ? communityContextMenu.tagId.substring(4) : communityContextMenu.tagId) : ""
++
 +                text: qsTr("Edit Label...")
-+                readonly property string pureTag: {
-+                    var id = communityContextMenu.tagId;
-+                    if (id.startsWith("tag:"))
-+                        return id.substring(4);
-+                    return id;
-+                }
 +                visible: pureTag.startsWith("u.") || pureTag.startsWith("virtual:") || CustomLabelListModel.displayNameForTag(pureTag) !== ""
 +                onTriggered: {
-+                    // Open label editor dialog
-+                    var dialog = Qt.createComponent("qrc:/resources/qml/dialogs/IconPickerDialog.qml");
-+                    if (dialog.status == Component.Ready) {
-+                        var win = dialog.createObject(communitySidebar, {
-+                            "currentTagId": communityContextMenu.tagId
-+                        });
-+                        win.show();
-+                    }
++                    editCustomLabelDialog.activeTag = pureTag;
++                    editLabelNameField.text = CustomLabelListModel.displayNameForTag(pureTag);
++                    editLabelIconField.text = CustomLabelListModel.iconKeyForTag(pureTag);
++                    editCustomLabelDialog.open();
 +                }
 +            }
 +            MenuItem {
@@ -2229,7 +2221,7 @@ index 7af6d05..1155cb0 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..4e1ff80 100644
+index ce2a8f8..feaca26 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2462,7 +2454,7 @@ index ce2a8f8..4e1ff80 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +959,67 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +959,68 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
@@ -2475,11 +2467,12 @@ index ce2a8f8..4e1ff80 100644
 +    int realContacts = 0;
 +
 +    if (models.contains(roomid)) {
-+        auto local = cache::client()->localUserId().toStdString();
++        auto local = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
 +        for (const auto &m : members) {
 +            if (m.user_id == local) continue;
++
 +            QString mxid = m.user_id;
 +            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
 +                isBeeperBridge = true;
@@ -2534,7 +2527,7 @@ index ce2a8f8..4e1ff80 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1047,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1048,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2551,7 +2544,7 @@ index ce2a8f8..4e1ff80 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1107,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1108,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2559,7 +2552,7 @@ index ce2a8f8..4e1ff80 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1127,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1128,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2574,7 +2567,7 @@ index ce2a8f8..4e1ff80 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1200,6 +1397,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1398,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
