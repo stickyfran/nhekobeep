@@ -1,0 +1,116 @@
+diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
+index c6545e6..4f325ca 100644
+--- a/resources/qml/CommunitiesList.qml
++++ b/resources/qml/CommunitiesList.qml
+@@ -227,24 +227,17 @@ Page {
+                     visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
+                 }
+ 
+-                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
+-                readonly property bool isEmojiIcon: {
+-                    if (!model.avatarUrl || model.avatarUrl.length === 0)
+-                        return false;
+-                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
+-                    if (model.avatarUrl.startsWith("mxc://") ||
+-                        model.avatarUrl.startsWith(":/") ||
+-                        model.avatarUrl.startsWith("image://"))
+-                        return false;
+-                    return true;
+-                }
+-
+                 // Emoji icon display (for custom label emoji icons).
+                 Item {
+                     Layout.alignment: Qt.AlignVCenter
+                     Layout.preferredHeight: avatarSize
+                     Layout.preferredWidth: avatarSize
+-                    visible: isEmojiIcon
++                    visible: {
++                        var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                        if (urlStr === "") return false;
++                        if (urlStr.includes(".svg") || urlStr.startsWith("qrc:/") || urlStr.startsWith("mxc://") || urlStr.startsWith("image://") || urlStr.startsWith(":/")) return false;
++                        return true;
++                    }
+ 
+                     Rectangle {
+                         anchors.fill: parent
+@@ -277,7 +270,12 @@ Page {
+                 // Standard avatar display (for MXC, SVG, and image provider icons).
+                 Avatar {
+                     id: avatar
+-                    visible: !isEmojiIcon
++                    visible: {
++                        var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                        if (urlStr === "") return true;
++                        if (urlStr.includes(".svg") || urlStr.startsWith("qrc:/") || urlStr.startsWith("mxc://") || urlStr.startsWith("image://") || urlStr.startsWith(":/")) return true;
++                        return false;
++                    }
+ 
+                     Layout.alignment: Qt.AlignVCenter
+                     color: communityItem.backgroundColor
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index 4657771..0e8754a 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -962,30 +962,35 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+ void
+ RoomlistModel::updateNetworkCache(const QString &roomid)
+ {
+-    bool isBeeperBridge = false;
++    bool isBeeperBridge  = false;
+     QString counterpart;
+-    BeeperNetworkInfo netInfo;
+-    int realContacts = 0;
++    int realContacts     = 0;
+ 
+     if (models.contains(roomid)) {
+-        auto local = cache::client()->localUserId();
++        auto local   = cache::client()->localUserId();
+         auto members = cache::client()->getMembers(roomid.toStdString());
+ 
+         for (const auto &m : members) {
+-            if (m.user_id == local) continue;
++            if (m.user_id == local)
++                continue;
+ 
+             QString mxid = m.user_id;
+             if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
+                 isBeeperBridge = true;
+-                netInfo = beeperNetworkFromMxid(mxid);
+             } else {
+                 realContacts++;
+-                if (counterpart.isEmpty()) counterpart = mxid;
++                if (counterpart.isEmpty())
++                    counterpart = mxid;
+             }
+         }
+     }
+ 
+     if (isBeeperBridge) {
++        // Extract network info from the REAL user (counterpart), NOT the bot.
++        // Bridge bots (e.g. @whatsappbot:beeper.local) don't match the prefix
++        // map keys (e.g. "whatsapp_"), leaving groups with empty names.
++        auto netInfo = beeperNetworkFromMxid(counterpart);
++
+         if (realContacts > 1) {
+             networkCache.insert(roomid, {netInfo.name, netInfo.color, QString(), 999});
+         } else {
+@@ -994,6 +999,8 @@ RoomlistModel::updateNetworkCache(const QString &roomid)
+         return;
+     }
+ 
++    BeeperNetworkInfo netInfo;
++
+     if (directChatToUser.count(roomid)) {
+         const auto &userId = directChatToUser.at(roomid).front();
+         auto info = beeperNetworkFromMxid(userId);
+@@ -1292,7 +1299,9 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+ 
+         // --- CASOS ESPECIALES BEEPER ---
+         if (filterStr == QLatin1String("virtual:unread")) {
+-            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
++            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages).toBool() ||
++                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0 ||
++                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::UnreadMessages).toInt() > 0;
+         }
+         if (filterStr == QLatin1String("virtual:groups")) {
+             return !sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect).toBool();
