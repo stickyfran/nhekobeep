@@ -1,0 +1,313 @@
+# patches/0015-custom-label-emoji-editor.patch
+#
+# Custom Label Emoji Editor & Emoji Icon Display
+#
+# Provides a QML UI for managing custom labels with emoji-based icons
+# (instead of the original SVG-icon ComboBox approach), and updates the
+# CommunitiesList sidebar to render emoji icons as text labels rather
+# than attempting to load them as image URLs.
+#
+# == Changes ==
+#
+# 1. resources/qml/pages/UserSettingsPage.qml
+#    - Add a "MANAGE" DelegateChoice button for ManageCustomLabelsAction
+#      (alongside the existing ManageIgnoredUsers entry).
+#    - Add a full-featured Custom Label Editor Dialog with:
+#      * Inline editing of label name + emoji icon for each existing label
+#      * Per-row "Save" button (explicit save, not auto-save on text change)
+#      * Delete button per row
+#      * "Add Custom Label" sub-dialog with fields for tag, name, and emoji
+#      * Emoji TextField with single-character auto-truncation
+#
+# 2. resources/qml/CommunitiesList.qml
+#    - Introduce `isEmojiIcon` read-only property on the item delegate that
+#      detects non-path avatarUrl values (values that do not start with
+#      "mxc://", ":/" or "image://").
+#    - When isEmojiIcon is true, render a centered Label inside a rounded
+#      Rectangle instead of the standard Avatar component, so that emoji
+#      characters (e.g. 💼, 🍻, ❤️) appear natively as large text.
+#    - The standard Avatar path is preserved and shown when isEmojiIcon is
+#      false (backward-compatible).
+#
+# == Dependencies ==
+#
+# Requires the C++ backend from archive/0008-custom-labels-cpp.patch
+# (CustomLabel struct, CustomLabelListModel singleton, UserSettings
+# persistence methods).  Without that backend, the QML ManageCustomLabelsAction
+# DelegateChoice will not match any model role and will be silently skipped.
+#
+diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
+index a134474..0d2f6ff 100644
+--- a/resources/qml/CommunitiesList.qml
++++ b/resources/qml/CommunitiesList.qml
+@@ -139,7 +139,57 @@ Page {
+                     Layout.preferredWidth: fontMetrics.lineSpacing
+                     visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
+                 }
++
++                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
++                readonly property bool isEmojiIcon: {
++                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                        return false;
++                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
++                    if (model.avatarUrl.startsWith("mxc://") ||
++                        model.avatarUrl.startsWith(":/") ||
++                        model.avatarUrl.startsWith("image://"))
++                        return false;
++                    return true;
++                }
++
++                // Emoji icon display (for custom label emoji icons).
++                Item {
++                    Layout.alignment: Qt.AlignVCenter
++                    Layout.preferredHeight: avatarSize
++                    Layout.preferredWidth: avatarSize
++                    visible: isEmojiIcon
++
++                    Rectangle {
++                        anchors.fill: parent
++                        color: communityItem.backgroundColor
++                        radius: Settings.avatarCircles ? height / 2 : height / 8
++
++                        Label {
++                            anchors.centerIn: parent
++                            text: model.avatarUrl
++                            font.pixelSize: avatarSize * 0.55
++                            horizontalAlignment: Text.AlignHCenter
++                            verticalAlignment: Text.AlignVCenter
++                            textFormat: Text.PlainText
++                        }
++                    }
++
++                    NotificationBubble {
++                        anchors.bottom: parent.bottom
++                        anchors.margins: -Nheko.paddingSmall
++                        anchors.right: parent.right
++                        bubbleBackgroundColor: communityItem.bubbleBackground
++                        bubbleTextColor: communityItem.bubbleText
++                        font.pixelSize: fontMetrics.font.pixelSize * 0.6
++                        hasLoudNotification: model.hasLoudNotification
++                        mayBeVisible: communitySidebar.collapsed && !model.muted && Settings.spaceNotifications
++                        notificationCount: model.unreadMessages
++                    }
++                }
++
++                // Standard avatar display (for MXC, SVG, and image provider icons).
+                 Avatar {
++                    visible: !isEmojiIcon
+                     id: avatar
+ 
+                     Layout.alignment: Qt.AlignVCenter
+diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
+index 8f51e66..ff09c17 100644
+--- a/resources/qml/pages/UserSettingsPage.qml
++++ b/resources/qml/pages/UserSettingsPage.qml
+@@ -252,6 +252,18 @@ Rectangle {
+                             }
+                         }
+ 
++                        // --- Custom Labels ---
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ManageCustomLabelsAction
++                            Button {
++                                text: qsTr("MANAGE")
++                                onClicked: {
++                                    var dialog = customLabelEditorComponent.createObject();
++                                    dialog.open();
++                                }
++                            }
++                        }
++
+                         DelegateChoice {
+                             Text {
+                                 text: model.value
+@@ -263,6 +275,189 @@ Rectangle {
+         }
+     }
+ 
++    // --- Custom Label Editor Dialog ---
++    Component {
++        id: customLabelEditorComponent
++
++        Dialog {
++            id: customLabelEditor
++            title: qsTr("Custom Label Editor")
++            standardButtons: Dialog.Close
++            modal: true
++            anchors.centerIn: parent
++            width: Math.min(520, parent ? parent.width * 0.92 : 520)
++
++            ColumnLayout {
++                spacing: Nheko.paddingMedium
++                width: parent ? parent.width - Nheko.paddingLarge * 2 : 480
++
++                Label {
++                    text: qsTr("Define custom names and emoji icons for your tags.")
++                    wrapMode: Text.WordWrap
++                    Layout.fillWidth: true
++                }
++
++                ScrollView {
++                    Layout.fillWidth: true
++                    Layout.preferredHeight: Math.min(400, customLabelEditor.height * 0.6)
++                    clip: true
++
++                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
++
++                    ColumnLayout {
++                        width: parent ? parent.width : 460
++                        spacing: Nheko.paddingSmall
++
++                        Repeater {
++                            id: labelRepeater
++                            model: CustomLabelListModel
++
++                            delegate: RowLayout {
++                                id: labelRow
++                                Layout.fillWidth: true
++                                spacing: Nheko.paddingSmall
++
++                                required property int index
++                                required property string tag
++                                required property string displayName
++                                required property string iconKey
++
++                                // Local editing state
++                                property string editedName: displayName
++                                property string editedIcon: iconKey
++
++                                TextField {
++                                    Layout.fillWidth: true
++                                    placeholderText: qsTr("Label Name")
++                                    text: labelRow.editedName
++                                    onTextChanged: labelRow.editedName = text
++                                }
++
++                                TextField {
++                                    id: iconField
++                                    Layout.preferredWidth: 50
++                                    Layout.maximumWidth: 60
++                                    placeholderText: qsTr("💼")
++                                    text: {
++                                        // If existing icon is an emoji (not a path), show it.
++                                        if (labelRow.editedIcon.length > 0 &&
++                                            !labelRow.editedIcon.startsWith(":/") &&
++                                            !labelRow.editedIcon.startsWith("mxc://") &&
++                                            !labelRow.editedIcon.startsWith("image://")) {
++                                            return labelRow.editedIcon;
++                                        }
++                                        return "";
++                                    }
++                                    onTextChanged: {
++                                        if (text.length > 1) {
++                                            // Keep only the first character.
++                                            labelRow.editedIcon = text.charAt(0);
++                                            iconField.text = labelRow.editedIcon;
++                                        } else {
++                                            labelRow.editedIcon = text;
++                                        }
++                                    }
++                                    ToolTip.text: qsTr("Enter a single emoji character")
++                                    ToolTip.visible: hovered
++                                    ToolTip.delay: Nheko.tooltipDelay
++                                }
++
++                                Label {
++                                    text: labelRow.tag
++                                    color: palette.buttonText
++                                    font.pixelSize: fontMetrics.font.pixelSize * 0.85
++                                    Layout.preferredWidth: 80
++                                    elide: Text.ElideRight
++                                }
++
++                                Button {
++                                    text: qsTr("Save")
++                                    enabled: labelRow.editedName.length > 0 &&
++                                             (labelRow.editedName !== labelRow.displayName ||
++                                              labelRow.editedIcon !== labelRow.iconKey)
++                                    onClicked: {
++                                        CustomLabelListModel.updateLabel(
++                                            labelRow.index,
++                                            labelRow.tag,
++                                            labelRow.editedName,
++                                            labelRow.editedIcon.length > 0 ? labelRow.editedIcon : labelRow.iconKey);
++                                    }
++                                }
++
++                                ImageButton {
++                                    Layout.preferredWidth: 22
++                                    Layout.preferredHeight: 22
++                                    image: ":/icons/icons/ui/delete.svg"
++                                    ToolTip.text: qsTr("Remove label")
++                                    ToolTip.visible: hovered
++                                    hoverEnabled: true
++                                    onClicked: CustomLabelListModel.removeLabel(labelRow.index)
++                                }
++                            }
++                        }
++
++                        Button {
++                            text: qsTr("Add Custom Label")
++                            Layout.alignment: Qt.AlignLeft
++                            onClicked: addLabelDialog.open()
++                        }
++                    }
++                }
++            }
++
++            // --- Add Label Dialog ---
++            Dialog {
++                id: addLabelDialog
++                title: qsTr("Add Custom Label")
++                standardButtons: Dialog.Ok | Dialog.Cancel
++                modal: true
++                anchors.centerIn: parent
++
++                ColumnLayout {
++                    spacing: Nheko.paddingMedium
++                    width: parent ? parent.width : 300
++
++                    Label { text: qsTr("Tag:") }
++                    TextField {
++                        id: newTagField
++                        placeholderText: "u.mylabel"
++                        Layout.fillWidth: true
++                    }
++
++                    Label { text: qsTr("Label Name:") }
++                    TextField {
++                        id: newNameField
++                        placeholderText: qsTr("My Label")
++                        Layout.fillWidth: true
++                    }
++
++                    Label { text: qsTr("Icon (emoji):") }
++                    TextField {
++                        id: newIconField
++                        placeholderText: qsTr("💼")
++                        Layout.fillWidth: true
++                        onTextChanged: {
++                            if (text.length > 1)
++                                text = text.charAt(0);
++                        }
++                    }
++                }
++
++                onAccepted: {
++                    if (newTagField.text && newNameField.text) {
++                        CustomLabelListModel.addLabel(
++                            newTagField.text,
++                            newNameField.text,
++                            newIconField.text.length > 0 ? newIconField.text : "");
++                    }
++                    newTagField.text = "";
++                    newNameField.text = "";
++                    newIconField.text = "";
++                }
++            }
++        }
++    }
++
+     ImageButton {
+         id: backButton
+         anchors.top: parent.top

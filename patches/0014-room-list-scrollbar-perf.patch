@@ -1,0 +1,62 @@
+# patches/0014-room-list-scrollbar-perf.patch
+#
+# PURPOSE:
+# Improve room list scrolling feel and add a persistent, interactive,
+# themed vertical scrollbar to the room ListView.
+#
+# === Changes ===
+#
+# 1. ScrollBar enhancements (RoomList.qml):
+#    - Made the vertical ScrollBar always visible and interactive
+#    - Set policy to ScrollBar.AlwaysOn so it never auto-hides
+#    - Added a minimal custom contentItem (rounded rect) themed with
+#      Nheko.theme.separator, with pressed-state highlighting
+#    - Added a minimal background for visual tracking area
+#    - Removed the conditional parent assignment tied to
+#      Settings.scrollbarsInRoomlist — the scrollbar is now persistent
+#
+# 2. ListView high-refresh-rate optimizations (RoomList.qml):
+#    - Enabled reuseItems: true (was commented out) — prevents delegate
+#      destruction/recreation on scroll, eliminating avatar re-loads
+#    - Set maximumFlickVelocity: 6000 — allows faster flick scrolling
+#      on high-refresh-rate displays (120Hz+)
+#    - Set cacheBuffer: 2000 — pre-renders more off-screen delegates
+#      for smoother scroll transitions
+#
+diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
+index abcdef1..abcdef2 100644
+--- a/resources/qml/RoomList.qml
++++ b/resources/qml/RoomList.qml
+@@ -436,15 +436,31 @@ Page {
+         model: Rooms
+         boundsBehavior: Flickable.StopAtBounds
+
+-        //reuseItems: true
++        reuseItems: true
++        maximumFlickVelocity: 6000
++        cacheBuffer: 2000
++
+         ScrollBar.vertical: ScrollBar {
+             id: scrollbar
+
+-            parent: !collapsed && Settings.scrollbarsInRoomlist ? roomlist : null
++            parent: roomlist
++            interactive: true
++            visible: true
++            policy: ScrollBar.AlwaysOn
++
++            contentItem: Rectangle {
++                implicitWidth: 8
++                radius: 4
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.4)
++            }
++
++            background: Rectangle {
++                implicitWidth: 8
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.08)
++            }
+         }
+         delegate: ItemDelegate {
+             id: roomItem
+
+             required property string avatarUrl
