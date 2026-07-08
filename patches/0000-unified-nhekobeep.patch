@@ -1,3 +1,33 @@
+diff --git a/.ci/format.sh b/.ci/format.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/install.sh b/.ci/install.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/licenses.sh b/.ci/licenses.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/linux/deploy.sh b/.ci/linux/deploy.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/macos/build.sh b/.ci/macos/build.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/macos/notarize.sh b/.ci/macos/notarize.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/script.sh b/.ci/script.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/update-github-release.sh b/.ci/update-github-release.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/upload-nightly-gitlab.sh b/.ci/upload-nightly-gitlab.sh
+old mode 100755
+new mode 100644
+diff --git a/.ci/upload-nightly.sh b/.ci/upload-nightly.sh
+old mode 100755
+new mode 100644
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 8122313..500ef29 100644
 --- a/CMakeLists.txt
@@ -170,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..9e7cb7a 100644
+index a134474..5c045b6 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -274,19 +304,22 @@ index a134474..9e7cb7a 100644
          model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
-@@ -139,8 +226,58 @@ Page {
+@@ -139,8 +226,61 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
                      visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
 +
 +                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
 +                readonly property bool isEmojiIcon: {
-+                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                    var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
++                    if (urlStr === "")
 +                        return false;
-+                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
-+                    if (model.avatarUrl.startsWith("mxc://") ||
-+                        model.avatarUrl.startsWith(":/") ||
-+                        model.avatarUrl.startsWith("image://"))
++                    // Strict check to prevent SVGs from being rendered as text emojis
++                    if (urlStr.includes(".svg") ||
++                        urlStr.startsWith("qrc:/") ||
++                        urlStr.startsWith("mxc://") ||
++                        urlStr.startsWith(":/") ||
++                        urlStr.startsWith("image://"))
 +                        return false;
 +                    return true;
 +                }
@@ -333,7 +366,7 @@ index a134474..9e7cb7a 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +367,77 @@ Page {
+@@ -230,6 +370,77 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -412,7 +445,7 @@ index a134474..9e7cb7a 100644
      }
  }
 diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
-index 84b34a7..424d062 100644
+index 84b34a7..4b439d4 100644
 --- a/resources/qml/MessageView.qml
 +++ b/resources/qml/MessageView.qml
 @@ -754,6 +754,63 @@ Item {
@@ -929,6 +962,24 @@ index 8f51e66..94421de 100644
 +    }
  }
  
+diff --git a/scripts/archive.sh b/scripts/archive.sh
+old mode 100755
+new mode 100644
+diff --git a/scripts/emoji_codegen.py b/scripts/emoji_codegen.py
+old mode 100755
+new mode 100644
+diff --git a/scripts/flat-manager-client b/scripts/flat-manager-client
+old mode 100755
+new mode 100644
+diff --git a/scripts/generate_icns.sh b/scripts/generate_icns.sh
+old mode 100755
+new mode 100644
+diff --git a/scripts/includemocs.py b/scripts/includemocs.py
+old mode 100755
+new mode 100644
+diff --git a/scripts/upload-to-flatpak-repo.sh b/scripts/upload-to-flatpak-repo.sh
+old mode 100755
+new mode 100644
 diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
 index 4608aca..aa2a2c1 100644
 --- a/src/AvatarProvider.cpp
@@ -2010,7 +2061,7 @@ index bc13cdc..f042090 100644
      parser.addHelpOption();
      parser.addVersionOption();
 diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
-index a707c10..b569810 100644
+index a707c10..ddeba0f 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
 @@ -5,6 +5,7 @@
@@ -2049,14 +2100,14 @@ index a707c10..b569810 100644
  QHash<int, QByteArray>
  CommunitiesModel::roleNames() const
  {
-@@ -190,12 +212,42 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+@@ -190,12 +212,45 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
              case CommunitiesModel::Roles::Tooltip:
                  return tr("Messages from your server or administrator.");
              }
 +        } else if (tag == QLatin1String("virtual:unread")) {
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                return QStringLiteral(":/icons/icons/ui/alert.svg");
++                return QStringLiteral("qrc:/icons/icons/ui/alert.svg");
 +            case CommunitiesModel::Roles::DisplayName:
 +                return tr("Unread");
 +            case CommunitiesModel::Roles::Tooltip:
@@ -2069,7 +2120,7 @@ index a707c10..b569810 100644
 +        } else if (tag == QLatin1String("virtual:groups")) {
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                return QStringLiteral(":/icons/icons/ui/people.svg");
++                return QStringLiteral("qrc:/icons/icons/ui/people.svg");
 +            case CommunitiesModel::Roles::DisplayName:
 +                return tr("Groups");
 +            case CommunitiesModel::Roles::Tooltip:
@@ -2082,9 +2133,13 @@ index a707c10..b569810 100644
 +
              switch (role) {
              case CommunitiesModel::Roles::AvatarUrl:
-+                if (!customIcon.isEmpty())
+-                return QStringLiteral(":/icons/icons/ui/tag.svg");
++                if (!customIcon.isEmpty()) {
++                    if (customIcon.startsWith(":/"))
++                        return customIcon.replace(":/", "qrc:/");
 +                    return customIcon;
-                 return QStringLiteral(":/icons/icons/ui/tag.svg");
++                }
++                return QStringLiteral("qrc:/icons/icons/ui/tag.svg");
              case CommunitiesModel::Roles::DisplayName:
              case CommunitiesModel::Roles::Tooltip:
 +                if (!customName.isEmpty())
@@ -2092,7 +2147,7 @@ index a707c10..b569810 100644
                  return tag.mid(2);
              }
          }
-@@ -365,6 +417,10 @@ CommunitiesModel::initializeSidebar()
+@@ -365,6 +420,10 @@ CommunitiesModel::initializeSidebar()
      for (const auto &t : ts)
          tags_.push_back(QString::fromStdString(t));
  
@@ -2103,7 +2158,7 @@ index a707c10..b569810 100644
      spaceOrder_.restoreCollapsed();
  
      for (auto &space : spaceOrder_.tree) {
-@@ -702,6 +758,8 @@ namespace {
+@@ -702,6 +761,8 @@ namespace {
  enum Categories
  {
      World,
@@ -2112,7 +2167,7 @@ index a707c10..b569810 100644
      Direct,
      Favourites,
      Server,
-@@ -717,6 +775,10 @@ tagIdToCat(const QString &tagId)
+@@ -717,6 +778,10 @@ tagIdToCat(const QString &tagId)
          return World;
      else if (tagId == QLatin1String("dm"))
          return Direct;
@@ -2123,7 +2178,7 @@ index a707c10..b569810 100644
      else if (tagId == QLatin1String("tag:m.favourite"))
          return Favourites;
      else if (tagId == QLatin1String("tag:m.server_notice"))
-@@ -937,4 +999,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
+@@ -937,4 +1002,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
      }
  }
  
@@ -2292,7 +2347,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..1c1989d 100644
+index ce2a8f8..07f7a54 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2512,7 +2567,7 @@ index ce2a8f8..1c1989d 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +953,60 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +953,76 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
@@ -2527,25 +2582,41 @@ index ce2a8f8..1c1989d 100644
 +        return;
 +    }
 +
-+    // 2. Check Beeper fake DMs (3-member rooms with bridge bot)
++    // 2. Check Beeper bridged rooms (Both DMs and Groups)
 +    if (models.contains(roomid)) {
-+        auto room  = models.value(roomid);
 +        auto local = cache::client()->localUserId();
-+        // Only check if it looks like a 1:1 or 3-member group via member count.
-+        // We query at most 4 members for efficiency.
-+        auto members = cache::client()->getMembers(roomid.toStdString(), 0, 4);
-+        if (members.size() == 3) {
-+            for (const auto &m : members) {
-+                if (m.user_id == local)
-+                    continue;
-+                if (m.user_id.contains(QStringLiteral("bot"), Qt::CaseInsensitive) &&
-+                    m.user_id.contains(QStringLiteral(":beeper.")))
-+                    continue;
-+                // This is the real contact
-+                auto info = beeperNetworkFromMxid(m.user_id);
-+                networkCache.insert(roomid, {info.name, info.color, m.user_id});
-+                return;
++        // Fetch all members. LMDB read is extremely fast.
++        auto members = cache::client()->getMembers(roomid.toStdString());
++
++        bool isBeeperBridge = false;
++        QString counterpart;
++        BeeperNetworkInfo netInfo;
++        int activeMembers = 0;
++
++        for (const auto &m : members) {
++            if (m.user_id == local)
++                continue;
++            activeMembers++;
++
++            QString mxid = QString::fromStdString(m.user_id);
++            if (mxid.contains(QStringLiteral("bot"), Qt::CaseInsensitive) &&
++                mxid.contains(QStringLiteral(":beeper."))) {
++                isBeeperBridge = true;
++                netInfo        = beeperNetworkFromMxid(mxid);
++            } else if (counterpart.isEmpty()) {
++                counterpart = mxid;
 +            }
++        }
++
++        if (isBeeperBridge) {
++            if (activeMembers <= 2) {
++                // It's a 1:1 DM (Local + Bot + 1 Real Contact)
++                networkCache.insert(roomid, {netInfo.name, netInfo.color, counterpart});
++            } else {
++                // It's a Group Chat (Local + Bot + 2+ Real Contacts)
++                networkCache.insert(roomid, {netInfo.name, netInfo.color, QString()});
++            }
++            return;
 +        }
 +    }
 +
@@ -2577,7 +2648,7 @@ index ce2a8f8..1c1989d 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1034,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1050,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2594,7 +2665,7 @@ index ce2a8f8..1c1989d 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1094,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1110,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2602,7 +2673,7 @@ index ce2a8f8..1c1989d 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1114,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1130,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2617,7 +2688,7 @@ index ce2a8f8..1c1989d 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1173,6 +1357,64 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+@@ -1173,6 +1373,64 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
          }
  
          return true;
@@ -2682,7 +2753,7 @@ index ce2a8f8..1c1989d 100644
      } else {
          return true;
      }
-@@ -1200,6 +1442,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1458,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
