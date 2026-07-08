@@ -2619,8 +2619,7 @@ index ce2a8f8..0e8754a 100644
 +        // --- CASOS ESPECIALES BEEPER ---
 +        if (filterStr == QLatin1String("virtual:unread")) {
 +            return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages).toBool() ||
-+                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0 ||
-+                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::UnreadMessages).toInt() > 0;
++                   sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
 +        }
 +        if (filterStr == QLatin1String("virtual:groups")) {
 +            return !sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect).toBool();
