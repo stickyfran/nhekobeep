@@ -15,9 +15,10 @@ NEW_FILES_DIR="$SCRIPT_DIR/new-files"
 BUILD_DIR="${REPO_DIR}/build"
 
 # ── Patch files (applied in order) ──────────────────────────────────────────
-# All changes are consolidated into a single patch to avoid overlay errors.
+# ALL changes are consolidated into a SINGLE unified patch.
 # When you make changes to nheko/, regenerate it with:
-#   git -C nheko diff HEAD -- [files...] > patches/0000-unified-nhekobeep.patch
+#   git -C nheko diff HEAD > patches/0000-unified-nhekobeep.patch
+# Do NOT create new 000X-*.patch files — everything goes here.
 PATCH_FILES=(
     "0000-unified-nhekobeep.patch"
 )
@@ -93,7 +94,7 @@ apply_patches() {
         fi
     done
 
-    # Apply patch files (before QML direct patches, so context matches originals)
+    # Apply the single unified patch
     for f in "${PATCH_FILES[@]}"; do
         local pf="$SCRIPT_DIR/$f"
         if [[ ! -f "$pf" ]]; then
@@ -119,12 +120,7 @@ apply_patches() {
         fi
     done
 
-    # NOTE: All QML changes (Force Cache Sync button, Beeper Reinit section,
-    # Custom Labels sub-menu, Custom Labels settings UI, CacheRefreshOverlay,
-    # BeeperReinitOverlay) are now included directly in the unified patch
-    # (0000-unified-nhekobeep.patch). No sed-based patching needed.
     ok "All patches applied successfully via unified patch."
-
 }
 
 # ── 4. Configure cmake with Hunter ──────────────────────────────────────────

@@ -1,8 +1,68 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8122313..0575fe9 100644
+index 8122313..500ef29 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -463,8 +463,13 @@ set(SRC_FILES
+@@ -12,6 +12,13 @@ endif()
+ option(FLATPAK "Set this only if Nheko is built as a flatpak" OFF)
+ option(JSON_ImplicitConversions "Disable implicit conversions in nlohmann/json" ON)
+ 
++#
++# -- Optimisation options ------------------------------------------------------
++#
++option(NHEKO_OPTIMIZE_NATIVE
++    "Append -O3 -march=native -mtune=native to Release-build compiler flags for maximum CPU-specific performance."
++    ON)
++
+ set(
+     CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake"
+     CACHE
+@@ -49,6 +56,20 @@ endmacro()
+ 
+ project(nheko LANGUAGES CXX C)
+ 
++# ---- LTO / IPO (Link-Time / Interprocedural Optimisation) --------------------
++#
++# Enables cross-translation-unit inlining and aggressive optimisation across
++# the entire codebase *and* its statically-linked dependencies.
++#
++include(CheckIPOSupported)
++check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_error)
++if(_ipo_supported)
++    message(STATUS "IPO / LTO is supported -- enabling global interprocedural optimisation")
++    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++else()
++    message(WARNING "IPO / LTO is NOT supported by this compiler toolchain: ${_ipo_error}")
++endif()
++
+ option(USE_BUNDLED_SPDLOG "Use the bundled version of spdlog." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_FMT "Use the bundled version of {fmt}." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_OLM "Use the bundled version of libolm." ${HUNTER_ENABLED})
+@@ -330,6 +351,24 @@ else(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+     message("Build type set to '${CMAKE_BUILD_TYPE}'")
+ endif(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+ 
++# ---- Native-architecture Release flags ---------------------------------------
++#
++# When NHEKO_OPTIMIZE_NATIVE is ON (the default), inject -O3, -march=native and
++# -mtune=native into the Release (and RelWithDebInfo / MinSizeRel) flag sets.
++# These flags tell GCC (or Clang) to tune every emitted instruction for the
++# *exact* CPU on which the build is running.
++#
++if(NHEKO_OPTIMIZE_NATIVE)
++    foreach(_config IN ITEMS RELEASE RELWITHDEBINFO MINSIZEREL)
++        string(APPEND CMAKE_CXX_FLAGS_${_config} " -O3 -march=native -mtune=native")
++        string(APPEND CMAKE_C_FLAGS_${_config}   " -O3 -march=native -mtune=native")
++    endforeach()
++    message(STATUS
++        "NHEKO_OPTIMIZE_NATIVE: appended -O3 -march=native -mtune=native "
++        "to CMAKE_CXX_FLAGS_RELEASE / CMAKE_C_FLAGS_RELEASE "
++        "(and RelWithDebInfo / MinSizeRel)")
++endif()
++
+ set(SPDLOG_DEBUG_ON false)
+ 
+ # Windows doesn't handle CMAKE_BUILD_TYPE.
+@@ -463,8 +502,13 @@ set(SRC_FILES
      src/AvatarProvider.h
      src/BlurhashProvider.cpp
      src/BlurhashProvider.h
@@ -16,7 +76,7 @@ index 8122313..0575fe9 100644
      src/CacheCryptoStructs.cpp
      src/CacheCryptoStructs.h
      src/CacheStructs.h
-@@ -820,6 +825,8 @@ set(QML_SOURCES
+@@ -820,6 +864,8 @@ set(QML_SOURCES
      resources/qml/pages/RegisterPage.qml
      resources/qml/pages/UserSettingsPage.qml
      resources/qml/pages/WelcomePage.qml
@@ -351,6 +411,74 @@ index a134474..9e7cb7a 100644
          }
      }
  }
+diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
+index 84b34a7..424d062 100644
+--- a/resources/qml/MessageView.qml
++++ b/resources/qml/MessageView.qml
+@@ -754,6 +754,63 @@ Item {
+             right: scrollbar.left
+             rightMargin: Nheko.paddingMedium + (fullWidth - width) / 2
+         }
++    // Floating date pill ??? contextual date label while scrolling
++    Rectangle {
++        id: datePill
++
++        anchors {
++            horizontalCenter: parent.horizontalCenter
++            top: parent.top
++            topMargin: Nheko.paddingMedium
++        }
++
++        color: palette.window
++        border.color: palette.mid
++        border.width: 1
++
++        height: 28
++        opacity: (chat.moving || chat.flicking || datePillTimer.running) ? 1.0 : 0.0
++        radius: height / 2
++        visible: opacity > 0
++        width: dateLabel.implicitWidth + Nheko.paddingMedium * 2
++        z: 200
++
++        Behavior on opacity {
++            NumberAnimation {
++                duration: 200
++                easing.type: Easing.InOutQuad
++            }
++        }
++
++        Label {
++            id: dateLabel
++
++            anchors.centerIn: parent
++            color: palette.text
++            font.bold: true
++            font.pointSize: fontMetrics.font.pointSize * 0.9
++            text: {
++                var topItem = chat.itemAt(chat.contentX + 10, chat.contentY + 10);
++                if (topItem && topItem.room && topItem.timestamp) {
++                    return topItem.room.formatDateSeparator(topItem.timestamp);
++                }
++                return "";
++            }
++        }
++    }
++
++    Timer {
++        id: datePillTimer
++        interval: 1500
++        repeat: false
++    }
++
++    Connections {
++        function onMovementEnded() {
++            datePillTimer.restart();
++        }
++        target: chat
++    }
+         Image {
+             anchors.fill: parent
+             anchors.margins: Nheko.paddingMedium
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
 index db4f2cb..c808487 100644
 --- a/resources/qml/RoomList.qml
@@ -376,14 +504,16 @@ index db4f2cb..c808487 100644
                  ImageButton {
                      id: logoutButton
  
-@@ -442,11 +456,27 @@ Page {
+@@ -442,11 +456,29 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
 -        //reuseItems: true
 +        reuseItems: true
 +        maximumFlickVelocity: 6000
-+        cacheBuffer: Math.ceil(avatarSize * 5)
++        // Pre-fetch delegates for items ~3 screens ahead in scroll direction
++        // so avatar images start loading before they come into view
++        cacheBuffer: avatarSize * 20
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
  
@@ -394,14 +524,14 @@ index db4f2cb..c808487 100644
 +            policy: ScrollBar.AlwaysOn
 +
 +            contentItem: Rectangle {
-+                implicitWidth: 14
-+                radius: 7
-+                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
++                implicitWidth: 8
++                radius: 4
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.4)
 +            }
 +
 +            background: Rectangle {
-+                implicitWidth: 14
-+                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
++                implicitWidth: 8
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.08)
 +            }
          }
          delegate: ItemDelegate {
@@ -800,7 +930,7 @@ index 8f51e66..94421de 100644
  }
  
 diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
-index 4608aca..e02f59a 100644
+index 4608aca..aa2a2c1 100644
 --- a/src/AvatarProvider.cpp
 +++ b/src/AvatarProvider.cpp
 @@ -68,6 +68,27 @@ resolve(const QString &room_id,
@@ -808,7 +938,7 @@ index 4608aca..e02f59a 100644
      resolve(std::move(avatarUrl), size, receiver, callback);
  }
 +
-+// Dummy receiver used for pre-warming — lives long enough for async downloads
++// Dummy receiver used for pre-warming ??? lives long enough for async downloads
 +static QObject *
 +prewarmReceiver()
 +{
@@ -823,7 +953,7 @@ index 4608aca..e02f59a 100644
 +
 +    for (const auto &[url, size] : avatars) {
 +        resolve(url, size, recv, [](QPixmap) {
-+            // Result discarded — only the cache population matters.
++            // Result discarded ??? only the cache population matters.
 +            // The QPixmapCache insert happens inside resolve().
 +        });
 +    }
@@ -832,7 +962,7 @@ index 4608aca..e02f59a 100644
  
  #include "moc_AvatarProvider.cpp"
 diff --git a/src/AvatarProvider.h b/src/AvatarProvider.h
-index b73b1ad..187c540 100644
+index b73b1ad..244e0a1 100644
 --- a/src/AvatarProvider.h
 +++ b/src/AvatarProvider.h
 @@ -28,4 +28,11 @@ resolve(const QString &room_id,
@@ -843,12 +973,12 @@ index b73b1ad..187c540 100644
 +// Pre-warm the avatar cache for a list of (avatarUrl, size) pairs.
 +// This triggers asynchronous downloads into both the disk cache and
 +// the QPixmapCache (VRAM), so avatars appear instantly when scrolled to.
-+// The download responses are discarded — only the cache population matters.
++// The download responses are discarded ??? only the cache population matters.
 +void
 +prewarm(const QVector<QPair<QString, int>> &avatars);
  }
 diff --git a/src/Cache.cpp b/src/Cache.cpp
-index 0f621df..a4a6141 100644
+index 0f621df..3f52dd1 100644
 --- a/src/Cache.cpp
 +++ b/src/Cache.cpp
 @@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
@@ -1017,7 +1147,7 @@ index 0f621df..a4a6141 100644
  
 +    // Beeper "fake DM": render as a 1:1 with the real contact's name only,
 +    // hiding the bridge bot ("@<service>bot:beeper.<tld>"). This avoids
-+    // localised strings like "Juan Pérez y Instagram Bridge bot" leaking
++    // localised strings like "Juan P??rez y Instagram Bridge bot" leaking
 +    // into the room list.
 +    if (total == 3) {
 +        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
@@ -1880,7 +2010,7 @@ index bc13cdc..f042090 100644
      parser.addHelpOption();
      parser.addVersionOption();
 diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
-index a707c10..c7449bd 100644
+index a707c10..b569810 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
 @@ -5,6 +5,7 @@
@@ -1891,9 +2021,60 @@ index a707c10..c7449bd 100644
  #include <set>
  
  #include "Cache.h"
-@@ -191,11 +192,19 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+@@ -25,6 +26,27 @@ CommunitiesModel::CommunitiesModel(QObject *parent)
+     instance_ = this;
+ }
+ 
++QStringList
++CommunitiesModel::tags() const
++{
++    QStringList result;
++    for (const auto &t : tags_)
++        if (!t.startsWith(QLatin1String("virtual:")))
++            result.push_back(t);
++    return result;
++}
++
++QStringList
++CommunitiesModel::tagsWithDefault() const
++{
++    auto t = tags();
++    t.removeOne(QStringLiteral("m.server_notice"));
++    t.removeDuplicates();
++    t.prepend(QStringLiteral("m.lowpriority"));
++    t.prepend(QStringLiteral("m.favourite"));
++    return t;
++}
++
+ QHash<int, QByteArray>
+ CommunitiesModel::roleNames() const
+ {
+@@ -190,12 +212,42 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+             case CommunitiesModel::Roles::Tooltip:
                  return tr("Messages from your server or administrator.");
              }
++        } else if (tag == QLatin1String("virtual:unread")) {
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                return QStringLiteral(":/icons/icons/ui/alert.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return tr("Unread");
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Rooms with unread messages.");
++            case CommunitiesModel::Roles::UnreadMessages:
++                return (int)globalUnreads.notification_count;
++            case CommunitiesModel::Roles::HasLoudNotification:
++                return globalUnreads.highlight_count > 0;
++            }
++        } else if (tag == QLatin1String("virtual:groups")) {
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                return QStringLiteral(":/icons/icons/ui/people.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return tr("Groups");
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Group chats.");
++            }
          } else {
 +            // Check for Beeper custom label override
 +            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
@@ -1911,7 +2092,38 @@ index a707c10..c7449bd 100644
                  return tag.mid(2);
              }
          }
-@@ -937,4 +946,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
+@@ -365,6 +417,10 @@ CommunitiesModel::initializeSidebar()
+     for (const auto &t : ts)
+         tags_.push_back(QString::fromStdString(t));
+ 
++    // Persistent virtual smart filters (stripped from tags() accessor).
++    tags_.push_back(QStringLiteral("virtual:unread"));
++    tags_.push_back(QStringLiteral("virtual:groups"));
++
+     spaceOrder_.restoreCollapsed();
+ 
+     for (auto &space : spaceOrder_.tree) {
+@@ -702,6 +758,8 @@ namespace {
+ enum Categories
+ {
+     World,
++    VirtualUnread,
++    VirtualGroups,
+     Direct,
+     Favourites,
+     Server,
+@@ -717,6 +775,10 @@ tagIdToCat(const QString &tagId)
+         return World;
+     else if (tagId == QLatin1String("dm"))
+         return Direct;
++    else if (tagId == QLatin1String("tag:virtual:unread"))
++        return VirtualUnread;
++    else if (tagId == QLatin1String("tag:virtual:groups"))
++        return VirtualGroups;
+     else if (tagId == QLatin1String("tag:m.favourite"))
+         return Favourites;
+     else if (tagId == QLatin1String("tag:m.server_notice"))
+@@ -937,4 +999,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
      }
  }
  
@@ -2035,7 +2247,7 @@ index a707c10..c7449bd 100644
 +
  #include "moc_CommunitiesModel.cpp"
 diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
-index 7af6d05..1155cb0 100644
+index 7af6d05..cd779e3 100644
 --- a/src/timeline/CommunitiesModel.h
 +++ b/src/timeline/CommunitiesModel.h
 @@ -198,6 +198,10 @@ public:
@@ -2049,7 +2261,26 @@ index 7af6d05..1155cb0 100644
  
  public slots:
      void initializeSidebar();
-@@ -231,6 +235,10 @@ signals:
+@@ -211,16 +215,8 @@ public slots:
+         currentTagId_.clear();
+         emit currentTagIdChanged(currentTagId_);
+     }
+-    QStringList tags() const { return tags_; }
+-    QStringList tagsWithDefault() const
+-    {
+-        QStringList tagsWD = tags_;
+-        tagsWD.prepend(QStringLiteral("m.lowpriority"));
+-        tagsWD.prepend(QStringLiteral("m.favourite"));
+-        tagsWD.removeOne(QStringLiteral("m.server_notice"));
+-        tagsWD.removeDuplicates();
+-        return tagsWD;
+-    }
++    QStringList tags() const;
++    QStringList tagsWithDefault() const;
+     void toggleTagId(QString tagId);
+     void toggleTagMute(QString tagId);
+ 
+@@ -231,6 +227,10 @@ signals:
      void hiddenTagsChanged();
      void tagsChanged();
      void containsSubspacesChanged();
@@ -2061,7 +2292,7 @@ index 7af6d05..1155cb0 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..aa176ae 100644
+index ce2a8f8..1c1989d 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2081,7 +2312,7 @@ index ce2a8f8..aa176ae 100644
 +// Beeper MXID-based network detection helpers
 +// ---------------------------------------------------------------------------
 +
-+// Bridge MXID localpart prefix → {display name, brand hex color}
++// Bridge MXID localpart prefix ??? {display name, brand hex color}
 +static const QHash<QString, QPair<QString, QColor>> kBeeperPrefixMap = {
 +    {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
 +    {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
@@ -2386,7 +2617,72 @@ index ce2a8f8..aa176ae 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1200,6 +1384,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1173,6 +1357,64 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+         }
+ 
+         return true;
++    } else if (filterType == FilterBy::VirtualUnread) {
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        if (!hiddenTags.empty()) {
++            auto tags = sourceModel()
++                          ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
++                          .toStringList();
++
++            for (const auto &t : std::as_const(tags))
++                if (hiddenTags.contains(t))
++                    return false;
++        }
++
++        if (!hiddenSpaces.empty()) {
++            auto parents = sourceModel()
++                             ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::ParentSpaces)
++                             .toStringList();
++            for (const auto &t : std::as_const(parents))
++                if (hiddenSpaces.contains(t))
++                    return false;
++        }
++
++        bool hasUnread =
++          sourceModel()
++            ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages)
++            .toBool();
++        int notifCount =
++          sourceModel()
++            ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount)
++            .toInt();
++
++        return hasUnread || notifCount > 0;
++    } else if (filterType == FilterBy::VirtualGroups) {
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        return !sourceModel()
++                    ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsDirect)
++                    .toBool();
+     } else {
+         return true;
+     }
+@@ -1200,6 +1442,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2439,7 +2735,7 @@ index ce2a8f8..aa176ae 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..cb63138 100644
+index 7dfeb70..b866df8 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -2505,7 +2801,20 @@ index 7dfeb70..cb63138 100644
  
      TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
      RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
-@@ -248,6 +269,7 @@ private:
+@@ -226,6 +247,12 @@ public slots:
+         } else if (tagId.startsWith(QLatin1String("dm"))) {
+             filterType = FilterBy::DirectChats;
+             filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:unread")) {
++            filterType = FilterBy::VirtualUnread;
++            filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:groups")) {
++            filterType = FilterBy::VirtualGroups;
++            filterStr.clear();
+         } else {
+             filterType = FilterBy::Nothing;
+             filterStr.clear();
+@@ -248,12 +275,15 @@ private:
      RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
@@ -2513,6 +2822,14 @@ index 7dfeb70..cb63138 100644
  
      enum class FilterBy
      {
+         Tag,
+         Space,
+         DirectChats,
++        VirtualUnread,
++        VirtualGroups,
+         Nothing,
+     };
+     QString filterStr   = QLatin1String("");
 diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
 index 6233682..0fd1671 100644
 --- a/src/timeline/TimelineModel.cpp

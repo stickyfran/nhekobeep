@@ -4,15 +4,44 @@
 
 This project maintains patches for the [nheko](nheko/) Matrix client. The [`nheko/`](nheko/) directory contains the upstream source code and **MUST NOT be modified directly**.
 
-### When fixing build issues or making changes:
-- **NEVER** modify `.cpp`, `.h`, `.qml`, `.cmake`, or any other files inside [`nheko/`](nheko/)
-- **ONLY** modify `.patch` files inside [`patches/`](patches/)
-- If a change would logically touch a file in [`nheko/`](nheko/), instead update the corresponding patch file in [`patches/`](patches/) that introduces that change
-- New source files should be placed in [`patches/new-files/`](patches/new-files/) preserving the original relative path structure
-- Plans and documentation go in [`plans/`](plans/)
+### SINGLE-PATCH POLICY — NO EXCEPTIONS
 
-### Patch file naming convention:
-- [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch) — Unified beep patch
-- [`patches/000X-description.patch`](patches/000X-description.patch) — Individual feature/fix patches
-- [`patches/new-files/`](patches/new-files/) — New files to be introduced by patches
-- [`patches/archive/`](patches/archive/) — Deprecated/archived patches
+All changes **MUST** be consolidated into **one and only one** patch file:
+
+- [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch) — The single, unified patch containing ALL modifications
+
+### Rules:
+- **NEVER** modify `.cpp`, `.h`, `.qml`, `.cmake`, or any other files inside [`nheko/`](nheko/)
+- **NEVER** create new `000X-*.patch` files — everything goes into the unified patch
+- **ONLY** modify [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch)
+- If a change would logically touch a file in [`nheko/`](nheko/), update the unified patch instead
+- New source files go in [`patches/new-files/`](patches/new-files/) preserving the original relative path structure
+- Plans and documentation go in [`plans/`](plans/)
+- Individual numbered patches (`0007-*` through `0018-*`) are **forbidden** — they live archived in [`patches/archive/`](patches/archive/)
+
+### How to regenerate the unified patch after making changes:
+```bash
+# 1. Clean nheko submodule
+cd nheko && git checkout -- . && git clean -fd && cd ..
+
+# 2. Copy new files
+cp -r patches/new-files/src nheko/src
+cp -r patches/new-files/resources nheko/resources
+
+# 3. Apply the current unified patch
+cd nheko && git apply ../patches/0000-unified-nhekobeep.patch && cd ..
+
+# 4. Make your additional changes to files in nheko/ (add/edit/remove)
+
+# 5. Regenerate the unified patch
+git -C nheko diff HEAD > patches/0000-unified-nhekobeep.patch
+
+# 6. Verify
+./patches/patch-manager.sh
+```
+
+### Patch file structure:
+- [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch) — The single unified patch
+- [`patches/new-files/`](patches/new-files/) — New files to be introduced by the patch
+- [`patches/archive/`](patches/archive/) — Deprecated/archived individual patches (do not use)
+- [`patches/patch-manager.sh`](patches/patch-manager.sh) — Build script (only applies `0000-unified-nhekobeep.patch`)
