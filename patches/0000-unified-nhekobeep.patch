@@ -200,10 +200,10 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..4d4041c 100644
+index a134474..336685e 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
-@@ -29,12 +29,98 @@ Page {
+@@ -29,12 +29,99 @@ Page {
  
          target: MainWindow
      }
@@ -223,15 +223,14 @@ index a134474..4d4041c 100644
 +                Layout.fillWidth: true
 +            }
 +
-+            Button {
++            ImageButton {
 +                id: createSpaceBtn
 +                Layout.preferredWidth: 22
 +                Layout.preferredHeight: 22
-+                text: "+"
++                image: ":/icons/icons/ui/plus.svg"
 +                ToolTip.text: qsTr("Create Space")
 +                ToolTip.visible: hovered
 +                hoverEnabled: true
-+                flat: true
 +
 +                onClicked: createSpaceDialog.open()
 +
@@ -280,15 +279,14 @@ index a134474..4d4041c 100644
 +                }
 +            }
 +
-+            Button {
++            ImageButton {
 +                id: collapseBtn
 +                Layout.preferredWidth: 22
 +                Layout.preferredHeight: 22
-+                text: "<"
++                image: ":/icons/icons/ui/collapse.svg"
 +                ToolTip.text: qsTr("Collapse sidebar")
 +                ToolTip.visible: hovered
 +                hoverEnabled: true
-+                flat: true
 +
 +                onClicked: communitySidebar.collapsed = !communitySidebar.collapsed
 +            }
@@ -298,44 +296,30 @@ index a134474..4d4041c 100644
      ListView {
          id: communitiesList
  
--        anchors.left: parent.left
--        anchors.right: parent.right
+         anchors.left: parent.left
+         anchors.right: parent.right
 -        height: parent.height
-+        anchors.fill: parent
++        anchors.top: sidebarHeader.bottom
++        height: parent.height - sidebarHeader.height
          model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
-@@ -46,6 +132,26 @@ Page {
-         delegate: ItemDelegate {
-             id: communityItem
- 
-+            // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
-+            readonly property bool isEmojiIcon: {
-+                var urlStr = model.avatarUrl ? model.avatarUrl.toString() : "";
-+                if (urlStr === "")
-+                    return false;
-+                // Strict check to prevent SVGs or resource paths from being rendered
-+                // as text emojis. The string-matching hierarchy is:
-+                //   1. Contains ".svg" (catches .svg, .svg?token=..., etc.)
-+                //   2. Starts with "qrc:/" (explicit Qt resource path)
-+                //   3. Contains ":/" (catches bare :/icons/... style resource paths)
-+                //   4. Starts with "mxc://" or "image://" (Matrix content / image providers)
-+                if (urlStr.indexOf(".svg") >= 0 ||
-+                    urlStr.startsWith("qrc:/") ||
-+                    urlStr.indexOf(":/") >= 0 ||
-+                    urlStr.startsWith("mxc://") ||
-+                    urlStr.startsWith("image://"))
-+                    return false;
-+                return true;
-+            }
-+
-             property color backgroundColor: palette.window
-             property color bubbleBackground: palette.highlight
-             property color bubbleText: palette.highlightedText
-@@ -139,8 +245,46 @@ Page {
+@@ -139,8 +226,58 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
                      visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
++
++                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
++                readonly property bool isEmojiIcon: {
++                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                        return false;
++                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
++                    if (model.avatarUrl.startsWith("mxc://") ||
++                        model.avatarUrl.startsWith(":/") ||
++                        model.avatarUrl.startsWith("image://"))
++                        return false;
++                    return true;
++                }
 +
 +                // Emoji icon display (for custom label emoji icons).
 +                Item {
@@ -379,15 +363,7 @@ index a134474..4d4041c 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -203,6 +347,7 @@ Page {
-             property string tagId
- 
-             function show(parent, id_, hidden_, muted_) {
-+                console.log("[BEEPER-DEBUG] Context menu opened tagId=" + id_ + " hidden=" + hidden_ + " muted=" + muted_);
-                 tagId = id_;
-                 hidden = hidden_;
-                 muted = muted_;
-@@ -230,6 +375,136 @@ Page {
+@@ -230,6 +367,97 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -446,6 +422,26 @@ index a134474..4d4041c 100644
 +                }
 +            }
 +            MenuItem {
++                text: qsTr("Edit Label...")
++                readonly property string pureTag: {
++                    var id = communityContextMenu.tagId;
++                    if (id.startsWith("tag:"))
++                        return id.substring(4);
++                    return id;
++                }
++                visible: pureTag.startsWith("u.") || pureTag.startsWith("virtual:") || CustomLabelListModel.displayNameForTag(pureTag) !== ""
++                onTriggered: {
++                    // Open label editor dialog
++                    var dialog = Qt.createComponent("qrc:/resources/qml/dialogs/IconPickerDialog.qml");
++                    if (dialog.status == Component.Ready) {
++                        var win = dialog.createObject(communitySidebar, {
++                            "currentTagId": communityContextMenu.tagId
++                        });
++                        win.show();
++                    }
++                }
++            }
++            MenuItem {
 +                text: qsTr("Edit Space...")
 +                enabled: communityContextMenu.tagId.startsWith("space:")
 +                onTriggered: {
@@ -462,175 +458,27 @@ index a134474..4d4041c 100644
 +                    Communities.deleteSpace(communityContextMenu.tagId.toString().substring(6));
 +                }
 +            }
-+            MenuSeparator {}
-+            MenuItem {
-+                readonly property string pureTag: communityContextMenu.tagId ? (communityContextMenu.tagId.startsWith("tag:") ? communityContextMenu.tagId.substring(4) : communityContextMenu.tagId) : ""
-+
-+                text: qsTr("Edit Label...")
-+                // Show for any tag that already has a custom label OR raw Beeper folder OR virtual tags
-+                visible: pureTag.startsWith("u.") || pureTag.startsWith("virtual:") || CustomLabelListModel.displayNameForTag(pureTag) !== ""
-+                onTriggered: {
-+                    editCustomLabelDialog.activeTag = pureTag;
-+                    editLabelNameField.text = CustomLabelListModel.displayNameForTag(pureTag);
-+                    editLabelIconField.text = CustomLabelListModel.iconKeyForTag(pureTag);
-+                    editCustomLabelDialog.open();
-+                }
-+            }
-+        }
-+    }
-+
-+    // Global dialog - placed outside the menu context to prevent silent destruction
-+    // when the context menu closes. Uses Overlay.overlay as parent for proper
-+    // modal layering.
-+    Dialog {
-+        id: editCustomLabelDialog
-+        property string activeTag: ""
-+        title: qsTr("Edit Label: ") + activeTag
-+        standardButtons: Dialog.Save | Dialog.Cancel
-+        modal: true
-+        anchors.centerIn: parent
-+        width: 350
-+        parent: Overlay.overlay
-+
-+        ColumnLayout {
-+            spacing: Nheko.paddingMedium
-+            width: parent ? parent.width : 300
-+
-+            Label { text: qsTr("Display Name:") }
-+            TextField {
-+                id: editLabelNameField
-+                placeholderText: qsTr("Label name")
-+                Layout.fillWidth: true
-+            }
-+
-+            Label { text: qsTr("Icon (emoji or path):") }
-+            TextField {
-+                id: editLabelIconField
-+                placeholderText: qsTr(":/icons/... or emoji")
-+                Layout.fillWidth: true
-+            }
-+        }
-+
-+        onAccepted: {
-+            if (editLabelNameField.text.length > 0) {
-+                CustomLabelListModel.addLabel(
-+                    activeTag,
-+                    editLabelNameField.text,
-+                    editLabelIconField.text.length > 0 ? editLabelIconField.text : "");
-+
-+                // Force sidebar redraw so icons appear immediately
-+                Communities.initializeSidebar();
-+            }
          }
      }
- }
-diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
-index 84b34a7..d622db1 100644
---- a/resources/qml/MessageView.qml
-+++ b/resources/qml/MessageView.qml
-@@ -761,4 +761,83 @@ Item {
-             source: "image://colorimage/:/icons/icons/ui/download.svg?" + (toEndButton.down ? palette.highlightedText : palette.buttonText)
-         }
-     }
-+    // Floating date pill ???????? contextual date label while scrolling.
-+    // Anchored at the top-center of chatRoot, above all timeline content.
-+    Rectangle {
-+        id: datePill
-+
-+        anchors {
-+            horizontalCenter: parent.horizontalCenter
-+            top: parent.top
-+            topMargin: Nheko.paddingMedium
-+        }
-+
-+        color: palette.window
-+        border.color: palette.mid
-+        border.width: 1
-+
-+        height: 28
-+        // Visible during active scroll + brief 1.5s hold after stop.
-+        // contentY changes also restart the timer so the pill stays visible
-+        // while the user is still actively scrolling.
-+        opacity: (chat.moving || chat.flicking || datePillTimer.running) ? 1.0 : 0.0
-+        radius: height / 2
-+        visible: opacity > 0
-+        width: dateLabel.implicitWidth + Nheko.paddingMedium * 2
-+        z: 200
-+
-+        Behavior on opacity {
-+            NumberAnimation {
-+                duration: 200
-+                easing.type: Easing.InOutQuad
-+            }
-+        }
-+
-+        Label {
-+            id: dateLabel
-+
-+            anchors.centerIn: parent
-+            color: palette.text
-+            font.bold: true
-+            font.pointSize: fontMetrics.font.pointSize * 0.9
-+            // Read the topmost visible delegate's timestamp and format it
-+            // using the same pipeline as TimelineSectionHeader date separators.
-+            // Use contentY + 1 for precise top-of-viewport anchoring; itemAt
-+            // may return null during high-velocity scrolls so every access is
-+            // guarded.
-+            text: {
-+                var topItem = chat.itemAt(chat.contentX + 1, chat.contentY + 1);
-+                if (topItem && topItem.room && topItem.timestamp !== undefined) {
-+                    return topItem.room.formatDateSeparator(topItem.timestamp);
-+                }
-+                return "";
-+            }
-+        }
-+    }
-+
-+    Timer {
-+        id: datePillTimer
-+        interval: 1500
-+        repeat: false
-+    }
-+
-+    // Restart the hold timer whenever scroll-decay finishes.
-+    // The pill's opacity binding naturally keeps it visible during
-+    // chat.moving / chat.flicking, then the timer extends visibility
-+    // after movement ends.
-+    Connections {
-+        function onMovementEnded() {
-+            datePillTimer.restart();
-+        }
-+        target: chat
-+    }
-+
-+    // Also restart on contentY changes so the pill stays responsive
-+    // when the user is scrolling slowly or dragging the scrollbar.
-+    Connections {
-+        function onContentYChanged() {
-+            datePillTimer.restart();
-+        }
-+        target: chat
-+    }
  }
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
-index db4f2cb..66e549a 100644
+index db4f2cb..4817497 100644
 --- a/resources/qml/RoomList.qml
 +++ b/resources/qml/RoomList.qml
-@@ -227,6 +227,21 @@ Page {
+@@ -227,6 +227,20 @@ Page {
                  }
                  Item {
                  }
-+                Button {
++                ImageButton {
 +                    id: unreadSortToggle
 +
 +                    Layout.alignment: Qt.AlignVCenter
 +                    Layout.preferredHeight: fontMetrics.lineSpacing * 1.5
-+                    implicitWidth: fontMetrics.lineSpacing * 4
++                    Layout.preferredWidth: fontMetrics.lineSpacing * 1.5
 +                    ToolTip.delay: Nheko.tooltipDelay
 +                    ToolTip.text: Settings.sortUnreadFirst ? qsTr("Unread first: ON") : qsTr("Unread first: OFF")
 +                    ToolTip.visible: hovered
-+                    text: qsTr("Unread")
-+                    flat: true
++                    image: Settings.sortUnreadFirst ? ":/icons/icons/ui/sort-down.svg" : ":/icons/icons/ui/sort.svg"
 +                    visible: !collapsed
 +
 +                    onClicked: Settings.sortUnreadFirst = !Settings.sortUnreadFirst
@@ -638,15 +486,13 @@ index db4f2cb..66e549a 100644
                  ImageButton {
                      id: logoutButton
  
-@@ -442,11 +457,29 @@ Page {
+@@ -442,11 +456,27 @@ Page {
          model: Rooms
          boundsBehavior: Flickable.StopAtBounds
  
 -        //reuseItems: true
 +        reuseItems: true
 +        maximumFlickVelocity: 6000
-+        // Conservative cache buffer to prevent RAM bloat
-+        // while keeping reuseItems effective for smooth scrolling
 +        cacheBuffer: Math.ceil(avatarSize * 5)
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
@@ -658,19 +504,19 @@ index db4f2cb..66e549a 100644
 +            policy: ScrollBar.AlwaysOn
 +
 +            contentItem: Rectangle {
-+                implicitWidth: 8
-+                radius: 4
-+                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.4)
++                implicitWidth: 14
++                radius: 7
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
 +            }
 +
 +            background: Rectangle {
-+                implicitWidth: 8
-+                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.08)
++                implicitWidth: 14
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
 +            }
          }
          delegate: ItemDelegate {
              id: roomItem
-@@ -467,6 +500,9 @@ Page {
+@@ -467,6 +497,9 @@ Page {
              required property string roomId
              required property string roomName
              required property var tags
@@ -680,7 +526,7 @@ index db4f2cb..66e549a 100644
              required property string time
              property color unimportantText: palette.buttonText
  
-@@ -563,7 +599,7 @@ Page {
+@@ -563,7 +596,7 @@ Page {
                      enabled: false
                      roomid: roomId
                      url: avatarUrl.replace("mxc://", "image://MxcImage/")
@@ -689,7 +535,7 @@ index db4f2cb..66e549a 100644
                      Layout.preferredWidth: avatarSize
                      Layout.preferredHeight: avatarSize
  
-@@ -602,10 +638,47 @@ Page {
+@@ -602,10 +635,47 @@ Page {
  
                              anchors.left: parent.left
                              color: roomItem.importantText
@@ -738,7 +584,7 @@ index db4f2cb..66e549a 100644
                          Label {
                              id: timestamp
  
-@@ -793,6 +866,11 @@ Page {
+@@ -793,6 +863,11 @@ Page {
  
                  onTriggered: Rooms.copyLink(roomContextMenu.roomid)
              }
@@ -750,7 +596,7 @@ index db4f2cb..66e549a 100644
              Menu {
                  id: tagsMenu
  
-@@ -825,12 +903,65 @@ Page {
+@@ -825,12 +900,65 @@ Page {
                      onObjectAdded: (index, object) => tagsMenu.insertItem(index, object)
                      onObjectRemoved: (index, object) => tagsMenu.removeItem(object)
                  }
@@ -817,10 +663,10 @@ index db4f2cb..66e549a 100644
                  id: rootSpaceMenu
  
 diff --git a/resources/qml/TopBar.qml b/resources/qml/TopBar.qml
-index cd20e94..522a97f 100644
+index cd20e94..799aee3 100644
 --- a/resources/qml/TopBar.qml
 +++ b/resources/qml/TopBar.qml
-@@ -285,6 +285,21 @@ Pane {
+@@ -285,6 +285,20 @@ Pane {
  
                          onTriggered: TimelineManager.openRoomSettings(roomId)
                      }
@@ -828,7 +674,6 @@ index cd20e94..522a97f 100644
 +                    MenuItem {
 +                        id: fetchHistoryItem
 +
-+                        implicitHeight: 32
 +                        enabled: room && !room.fullHistoryFetching
 +                        text: room && room.fullHistoryFetching
 +                              ? qsTr("Fetching full history...")
@@ -1083,7 +928,7 @@ diff --git a/scripts/upload-to-flatpak-repo.sh b/scripts/upload-to-flatpak-repo.
 old mode 100755
 new mode 100644
 diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
-index 4608aca..aa2a2c1 100644
+index 4608aca..e02f59a 100644
 --- a/src/AvatarProvider.cpp
 +++ b/src/AvatarProvider.cpp
 @@ -68,6 +68,27 @@ resolve(const QString &room_id,
@@ -1091,7 +936,7 @@ index 4608aca..aa2a2c1 100644
      resolve(std::move(avatarUrl), size, receiver, callback);
  }
 +
-+// Dummy receiver used for pre-warming ??? lives long enough for async downloads
++// Dummy receiver used for pre-warming — lives long enough for async downloads
 +static QObject *
 +prewarmReceiver()
 +{
@@ -1106,7 +951,7 @@ index 4608aca..aa2a2c1 100644
 +
 +    for (const auto &[url, size] : avatars) {
 +        resolve(url, size, recv, [](QPixmap) {
-+            // Result discarded ??? only the cache population matters.
++            // Result discarded — only the cache population matters.
 +            // The QPixmapCache insert happens inside resolve().
 +        });
 +    }
@@ -1115,7 +960,7 @@ index 4608aca..aa2a2c1 100644
  
  #include "moc_AvatarProvider.cpp"
 diff --git a/src/AvatarProvider.h b/src/AvatarProvider.h
-index b73b1ad..244e0a1 100644
+index b73b1ad..187c540 100644
 --- a/src/AvatarProvider.h
 +++ b/src/AvatarProvider.h
 @@ -28,4 +28,11 @@ resolve(const QString &room_id,
@@ -1126,12 +971,12 @@ index b73b1ad..244e0a1 100644
 +// Pre-warm the avatar cache for a list of (avatarUrl, size) pairs.
 +// This triggers asynchronous downloads into both the disk cache and
 +// the QPixmapCache (VRAM), so avatars appear instantly when scrolled to.
-+// The download responses are discarded ??? only the cache population matters.
++// The download responses are discarded — only the cache population matters.
 +void
 +prewarm(const QVector<QPair<QString, int>> &avatars);
  }
 diff --git a/src/Cache.cpp b/src/Cache.cpp
-index 0f621df..3f52dd1 100644
+index 0f621df..a4a6141 100644
 --- a/src/Cache.cpp
 +++ b/src/Cache.cpp
 @@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
@@ -1300,7 +1145,7 @@ index 0f621df..3f52dd1 100644
  
 +    // Beeper "fake DM": render as a 1:1 with the real contact's name only,
 +    // hiding the bridge bot ("@<service>bot:beeper.<tld>"). This avoids
-+    // localised strings like "Juan P??rez y Instagram Bridge bot" leaking
++    // localised strings like "Juan Pérez y Instagram Bridge bot" leaking
 +    // into the room list.
 +    if (total == 3) {
 +        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
@@ -2163,7 +2008,7 @@ index bc13cdc..f042090 100644
      parser.addHelpOption();
      parser.addVersionOption();
 diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
-index a707c10..0940ed3 100644
+index a707c10..02161a1 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
 @@ -5,6 +5,7 @@
@@ -2174,97 +2019,19 @@ index a707c10..0940ed3 100644
  #include <set>
  
  #include "Cache.h"
-@@ -25,6 +26,27 @@ CommunitiesModel::CommunitiesModel(QObject *parent)
-     instance_ = this;
- }
- 
-+QStringList
-+CommunitiesModel::tags() const
-+{
-+    QStringList result;
-+    for (const auto &t : tags_)
-+        if (!t.startsWith(QLatin1String("virtual:")))
-+            result.push_back(t);
-+    return result;
-+}
-+
-+QStringList
-+CommunitiesModel::tagsWithDefault() const
-+{
-+    auto t = tags();
-+    t.removeOne(QStringLiteral("m.server_notice"));
-+    t.removeDuplicates();
-+    t.prepend(QStringLiteral("m.lowpriority"));
-+    t.prepend(QStringLiteral("m.favourite"));
-+    return t;
-+}
-+
- QHash<int, QByteArray>
- CommunitiesModel::roleNames() const
- {
-@@ -72,7 +94,7 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
-     if (index.row() == 0) {
-         switch (role) {
-         case CommunitiesModel::Roles::AvatarUrl:
--            return QStringLiteral(":/icons/icons/ui/world.svg");
-+            return QStringLiteral("qrc:/icons/icons/ui/world.svg");
-         case CommunitiesModel::Roles::DisplayName:
-             return tr("All rooms");
-         case CommunitiesModel::Roles::Tooltip:
-@@ -97,7 +119,7 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
-     } else if (index.row() == 1) {
-         switch (role) {
-         case CommunitiesModel::Roles::AvatarUrl:
--            return QStringLiteral(":/icons/icons/ui/people.svg");
-+            return QStringLiteral("qrc:/icons/icons/ui/people.svg");
-         case CommunitiesModel::Roles::DisplayName:
-             return tr("Direct Chats");
-         case CommunitiesModel::Roles::Tooltip:
-@@ -166,7 +188,7 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
-         if (tag == QLatin1String("m.favourite")) {
-             switch (role) {
-             case CommunitiesModel::Roles::AvatarUrl:
--                return QStringLiteral(":/icons/icons/ui/star.svg");
-+                return QStringLiteral("qrc:/icons/icons/ui/star.svg");
-             case CommunitiesModel::Roles::DisplayName:
-                 return tr("Favourites");
-             case CommunitiesModel::Roles::Tooltip:
-@@ -175,7 +197,7 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
-         } else if (tag == QLatin1String("m.lowpriority")) {
-             switch (role) {
-             case CommunitiesModel::Roles::AvatarUrl:
--                return QStringLiteral(":/icons/icons/ui/lowprio.svg");
-+                return QStringLiteral("qrc:/icons/icons/ui/lowprio.svg");
-             case CommunitiesModel::Roles::DisplayName:
-                 return tr("Low Priority");
-             case CommunitiesModel::Roles::Tooltip:
-@@ -184,18 +206,71 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
-         } else if (tag == QLatin1String("m.server_notice")) {
-             switch (role) {
-             case CommunitiesModel::Roles::AvatarUrl:
--                return QStringLiteral(":/icons/icons/ui/tag.svg");
-+                return QStringLiteral("qrc:/icons/icons/ui/tag.svg");
-             case CommunitiesModel::Roles::DisplayName:
-                 return tr("Server Notices");
+@@ -190,12 +191,48 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
              case CommunitiesModel::Roles::Tooltip:
                  return tr("Messages from your server or administrator.");
              }
 +        } else if (tag == QLatin1String("virtual:unread")) {
-+            // Check for Beeper custom label override
 +            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
 +            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                if (!customIcon.isEmpty()) {
-+                    if (customIcon.startsWith(":/"))
-+                        return customIcon.replace(":/", "qrc:/");
-+                    return customIcon;
-+                }
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
 +                return QStringLiteral("qrc:/icons/icons/ui/alert.svg");
 +            case CommunitiesModel::Roles::DisplayName:
-+                if (!customName.isEmpty())
-+                    return customName;
-+                return tr("Unread");
++                return customName.isEmpty() ? tr("Unread") : customName;
 +            case CommunitiesModel::Roles::Tooltip:
 +                return tr("Rooms with unread messages.");
 +            case CommunitiesModel::Roles::UnreadMessages:
@@ -2273,21 +2040,14 @@ index a707c10..0940ed3 100644
 +                return globalUnreads.highlight_count > 0;
 +            }
 +        } else if (tag == QLatin1String("virtual:groups")) {
-+            // Check for Beeper custom label override
 +            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
 +            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                if (!customIcon.isEmpty()) {
-+                    if (customIcon.startsWith(":/"))
-+                        return customIcon.replace(":/", "qrc:/");
-+                    return customIcon;
-+                }
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
 +                return QStringLiteral("qrc:/icons/icons/ui/people.svg");
 +            case CommunitiesModel::Roles::DisplayName:
-+                if (!customName.isEmpty())
-+                    return customName;
-+                return tr("Groups");
++                return customName.isEmpty() ? tr("Groups") : customName;
 +            case CommunitiesModel::Roles::Tooltip:
 +                return tr("Group chats.");
 +            }
@@ -2298,13 +2058,9 @@ index a707c10..0940ed3 100644
 +
              switch (role) {
              case CommunitiesModel::Roles::AvatarUrl:
--                return QStringLiteral(":/icons/icons/ui/tag.svg");
-+                if (!customIcon.isEmpty()) {
-+                    if (customIcon.startsWith(":/"))
-+                        return customIcon.replace(":/", "qrc:/");
++                if (!customIcon.isEmpty())
 +                    return customIcon;
-+                }
-+                return QStringLiteral("qrc:/icons/icons/ui/tag.svg");
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
              case CommunitiesModel::Roles::DisplayName:
              case CommunitiesModel::Roles::Tooltip:
 +                if (!customName.isEmpty())
@@ -2312,38 +2068,18 @@ index a707c10..0940ed3 100644
                  return tag.mid(2);
              }
          }
-@@ -365,6 +420,10 @@ CommunitiesModel::initializeSidebar()
+@@ -365,6 +402,10 @@ CommunitiesModel::initializeSidebar()
      for (const auto &t : ts)
          tags_.push_back(QString::fromStdString(t));
  
-+    // Persistent virtual smart filters (stripped from tags() accessor).
++    // Add virtual tags for dynamic sidebar sections
 +    tags_.push_back(QStringLiteral("virtual:unread"));
 +    tags_.push_back(QStringLiteral("virtual:groups"));
 +
      spaceOrder_.restoreCollapsed();
  
      for (auto &space : spaceOrder_.tree) {
-@@ -702,6 +761,8 @@ namespace {
- enum Categories
- {
-     World,
-+    VirtualUnread,
-+    VirtualGroups,
-     Direct,
-     Favourites,
-     Server,
-@@ -717,6 +778,10 @@ tagIdToCat(const QString &tagId)
-         return World;
-     else if (tagId == QLatin1String("dm"))
-         return Direct;
-+    else if (tagId == QLatin1String("tag:virtual:unread"))
-+        return VirtualUnread;
-+    else if (tagId == QLatin1String("tag:virtual:groups"))
-+        return VirtualGroups;
-     else if (tagId == QLatin1String("tag:m.favourite"))
-         return Favourites;
-     else if (tagId == QLatin1String("tag:m.server_notice"))
-@@ -937,4 +1002,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
+@@ -937,4 +978,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
      }
  }
  
@@ -2467,7 +2203,7 @@ index a707c10..0940ed3 100644
 +
  #include "moc_CommunitiesModel.cpp"
 diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
-index 7af6d05..cd779e3 100644
+index 7af6d05..1155cb0 100644
 --- a/src/timeline/CommunitiesModel.h
 +++ b/src/timeline/CommunitiesModel.h
 @@ -198,6 +198,10 @@ public:
@@ -2481,26 +2217,7 @@ index 7af6d05..cd779e3 100644
  
  public slots:
      void initializeSidebar();
-@@ -211,16 +215,8 @@ public slots:
-         currentTagId_.clear();
-         emit currentTagIdChanged(currentTagId_);
-     }
--    QStringList tags() const { return tags_; }
--    QStringList tagsWithDefault() const
--    {
--        QStringList tagsWD = tags_;
--        tagsWD.prepend(QStringLiteral("m.lowpriority"));
--        tagsWD.prepend(QStringLiteral("m.favourite"));
--        tagsWD.removeOne(QStringLiteral("m.server_notice"));
--        tagsWD.removeDuplicates();
--        return tagsWD;
--    }
-+    QStringList tags() const;
-+    QStringList tagsWithDefault() const;
-     void toggleTagId(QString tagId);
-     void toggleTagMute(QString tagId);
- 
-@@ -231,6 +227,10 @@ signals:
+@@ -231,6 +235,10 @@ signals:
      void hiddenTagsChanged();
      void tagsChanged();
      void containsSubspacesChanged();
@@ -2512,7 +2229,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..27e0e52 100644
+index ce2a8f8..4e1ff80 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2532,7 +2249,7 @@ index ce2a8f8..27e0e52 100644
 +// Beeper MXID-based network detection helpers
 +// ---------------------------------------------------------------------------
 +
-+// Bridge MXID localpart prefix ??? {display name, brand hex color}
++// Bridge MXID localpart prefix → {display name, brand hex color}
 +static const QHash<QString, QPair<QString, QColor>> kBeeperPrefixMap = {
 +    {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
 +    {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
@@ -2614,14 +2331,7 @@ index ce2a8f8..27e0e52 100644
  RoomlistModel::RoomlistModel(TimelineViewManager *parent)
    : QAbstractListModel(parent)
    , manager(parent)
-@@ -81,12 +166,16 @@ RoomlistModel::roleNames() const
-       {HasUnreadMessages, "hasUnreadMessages"},
-       {HasLoudNotification, "hasLoudNotification"},
-       {NotificationCount, "notificationCount"},
-+      {UnreadMessages, "unreadMessages"},
-       {IsInvite, "isInvite"},
-       {IsSpace, "isSpace"},
-       {Tags, "tags"},
+@@ -87,6 +172,9 @@ RoomlistModel::roleNames() const
        {ParentSpaces, "parentSpaces"},
        {IsDirect, "isDirect"},
        {DirectChatOtherUserId, "directChatOtherUserId"},
@@ -2631,31 +2341,20 @@ index ce2a8f8..27e0e52 100644
      };
  }
  
-@@ -106,7 +195,24 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -106,6 +194,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
          } else if (role == Roles::RoomId) {
              return roomid;
          } else if (role == Roles::IsDirect) {
--            return directChatToUser.count(roomid) > 0;
-+            // Read networkCache first. If netInfo.name is not empty (bridged room),
-+            // return netInfo.activeMemberCount <= 1 (true for DMs, false for Groups).
-+            // Fallback to directChatToUser for native Matrix rooms.
-+            const auto &netInfo = networkCache.value(roomid);
-+            if (!netInfo.name.isEmpty())
-+                return netInfo.activeMemberCount <= 1;
-+            return directChatToUser.count(roomid) > 0;
++            if (networkCache.contains(roomid)) {
++                const auto &netInfo = networkCache.value(roomid);
++                if (!netInfo.name.isEmpty()) {
++                    return netInfo.activeMemberCount <= 1;
++                }
++            }
+             return directChatToUser.count(roomid) > 0;
          } else if (role == Roles::DirectChatOtherUserId) {
              return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
-                                                   : QLatin1String("");
-@@ -131,6 +237,8 @@ RoomlistModel::data(const QModelIndex &index, int role) const
-                 return room->hasMentions();
-             case Roles::NotificationCount:
-                 return room->notificationCount();
-+            case Roles::UnreadMessages:
-+                return room->notificationCount();
-             case Roles::IsInvite:
-                 return false;
-             case Roles::IsSpace:
-@@ -145,6 +253,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -145,6 +239,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                      list.push_back(QString::fromStdString(t));
                  return list;
              }
@@ -2668,7 +2367,7 @@ index ce2a8f8..27e0e52 100644
              default:
                  return {};
              }
-@@ -174,6 +288,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -174,6 +274,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2681,7 +2380,7 @@ index ce2a8f8..27e0e52 100644
              default:
                  return {};
              }
-@@ -205,6 +325,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -205,6 +311,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return true;
              case Roles::Tags:
                  return QStringList();
@@ -2694,7 +2393,7 @@ index ce2a8f8..27e0e52 100644
              default:
                  return {};
              }
-@@ -236,6 +362,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -236,6 +348,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2707,7 +2406,7 @@ index ce2a8f8..27e0e52 100644
              default:
                  return {};
              }
-@@ -374,6 +506,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
+@@ -374,6 +492,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
                (int)(roomids.size() + previewsToAdd.size() - ((wasInvite || wasPreview) ? 1 : 0)));
  
          models.insert(room_id, std::move(newRoom));
@@ -2715,7 +2414,7 @@ index ce2a8f8..27e0e52 100644
          if (wasInvite) {
              auto idx = roomidToIndex(room_id);
              invites.remove(room_id);
-@@ -518,8 +651,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -518,8 +637,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
                std::get_if<mtx::events::AccountDataEvent<mtx::events::account_data::Direct>>(&e)) {
              auto updatedDMs = updateDMs(*event);
              for (const auto &r : updatedDMs) {
@@ -2730,7 +2429,7 @@ index ce2a8f8..27e0e52 100644
              }
          }
      }
-@@ -559,8 +696,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -559,8 +682,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
          for (const auto &e : room.account_data.events) {
              if (std::holds_alternative<
                    mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
@@ -2743,7 +2442,7 @@ index ce2a8f8..27e0e52 100644
              }
          }
      }
-@@ -636,6 +775,11 @@ RoomlistModel::initializeRooms()
+@@ -636,6 +761,11 @@ RoomlistModel::initializeRooms()
  
      endResetModel();
  
@@ -2755,7 +2454,7 @@ index ce2a8f8..27e0e52 100644
  #ifdef NHEKO_DBUS_SYS
      if (MainWindow::instance()->dbusAvailable()) {
          dbusInterface_ = new NhekoDBusBackend{this};
-@@ -653,6 +797,7 @@ RoomlistModel::clear()
+@@ -653,6 +783,7 @@ RoomlistModel::clear()
      models.clear();
      invites.clear();
      roomids.clear();
@@ -2763,58 +2462,47 @@ index ce2a8f8..27e0e52 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +973,99 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +959,67 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
 +void
 +RoomlistModel::updateNetworkCache(const QString &roomid)
 +{
-+    // Beeper places bridged groups into m.direct. This logic iterates members
-+    // to classify groups vs DMs. Members whose mxid contains "bot" (case-insensitive)
-+    // and ":beeper." are bridge bots. Remaining members (excluding the local user)
-+    // are counted as realContacts. If realContacts > 1, the room is a Group (999);
-+    // otherwise it is a DM (activeMemberCount = 1).
 +    bool isBeeperBridge = false;
++    QString counterpart;
 +    BeeperNetworkInfo netInfo;
 +    int realContacts = 0;
 +
 +    if (models.contains(roomid)) {
-+        auto local   = cache::client()->localUserId();
++        auto local = cache::client()->localUserId().toStdString();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
 +        for (const auto &m : members) {
-+            if (m.user_id == local)
-+                continue;
-+
-+            QString mxid = m.user_id;
-+            if (mxid.contains(QStringLiteral("bot"), Qt::CaseInsensitive) &&
-+                mxid.contains(QStringLiteral(":beeper."))) {
++            if (m.user_id == local) continue;
++            QString mxid = QString::fromStdString(m.user_id);
++            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
 +                isBeeperBridge = true;
-+                netInfo        = beeperNetworkFromMxid(mxid);
++                netInfo = beeperNetworkFromMxid(mxid);
 +            } else {
 +                realContacts++;
++                if (counterpart.isEmpty()) counterpart = mxid;
 +            }
 +        }
 +    }
 +
 +    if (isBeeperBridge) {
 +        if (realContacts > 1) {
-+            // Group chat: multiple real contacts + bridge bot
-+            networkCache.insert(
-+              roomid, {netInfo.name, netInfo.color, QString(), 999});
++            networkCache.insert(roomid, {netInfo.name, netInfo.color, QString(), 999});
 +        } else {
-+            // 1:1 DM: bridge bot + one real contact (or zero if only bot)
-+            networkCache.insert(
-+              roomid, {netInfo.name, netInfo.color, QString(), 1});
++            networkCache.insert(roomid, {netInfo.name, netInfo.color, counterpart, 1});
 +        }
 +        return;
 +    }
 +
-+    // Fallback: native Matrix rooms without a bridge bot.
 +    if (directChatToUser.count(roomid)) {
 +        const auto &userId = directChatToUser.at(roomid).front();
-+        auto info          = beeperNetworkFromMxid(userId);
++        auto info = beeperNetworkFromMxid(userId);
 +        networkCache.insert(roomid, {info.name, info.color, userId, 1});
 +        return;
 +    }
@@ -2846,7 +2534,7 @@ index ce2a8f8..27e0e52 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1093,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1047,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2863,7 +2551,7 @@ index ce2a8f8..27e0e52 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1153,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1107,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2871,7 +2559,7 @@ index ce2a8f8..27e0e52 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1173,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1127,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2886,53 +2574,7 @@ index ce2a8f8..27e0e52 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1173,6 +1416,45 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
-         }
- 
-         return true;
-+    } else if (filterType == FilterBy::VirtualUnread) {
-+        // Virtual unread filter: Show only rooms with push-rule notifications
-+        // (actual messages), not state events like avatar/description changes.
-+        // Bypass ALL standard tag/space/DM hiding hooks.
-+        // Do NOT check hiddenTags, hiddenSpaces, or hideDMs.
-+        const auto idx = sourceModel()->index(sourceRow, 0);
-+
-+        // Exclude previews and actual space rooms (not tag-filtered subspaces).
-+        if (sourceModel()->data(idx, RoomlistModel::IsPreview).toBool())
-+            return false;
-+        if (sourceModel()->data(idx, RoomlistModel::IsSpace).toBool())
-+            return false;
-+
-+        const int notifCount =
-+          sourceModel()->data(idx, RoomlistModel::NotificationCount).toInt();
-+
-+        nhlog::ui()->debug("[BEEPER-DEBUG] filterAcceptsRow VirtualUnread sourceRow={} notifCount={} ACCEPT={}",
-+                           sourceRow, notifCount, notifCount > 0);
-+
-+        return notifCount > 0;
-+    } else if (filterType == FilterBy::VirtualGroups) {
-+        // Virtual groups filter: Bypass ALL standard tag/space/DM hiding hooks.
-+        // Do NOT check hiddenTags, hiddenSpaces, or hideDMs.
-+        // Return rows strictly based on !IsDirect (i.e. group chats only).
-+        const auto idx = sourceModel()->index(sourceRow, 0);
-+
-+        // Exclude previews and actual space rooms.
-+        if (sourceModel()->data(idx, RoomlistModel::IsPreview).toBool())
-+            return false;
-+        if (sourceModel()->data(idx, RoomlistModel::IsSpace).toBool())
-+            return false;
-+
-+        const bool isDirect =
-+          sourceModel()->data(idx, RoomlistModel::IsDirect).toBool();
-+
-+        nhlog::ui()->debug("[BEEPER-DEBUG] filterAcceptsRow VirtualGroups sourceRow={} IsDirect={} ACCEPT={}",
-+                           sourceRow, isDirect, !isDirect);
-+
-+        return !isDirect;
-     } else {
-         return true;
-     }
-@@ -1200,6 +1482,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1397,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2985,7 +2627,7 @@ index ce2a8f8..27e0e52 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..0bc5475 100644
+index 7dfeb70..9153979 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -3005,21 +2647,13 @@ index 7dfeb70..0bc5475 100644
 +    QString name;            // e.g. "WhatsApp"
 +    QColor color;            // e.g. #25D366
 +    QString counterpartMxid; // The real contact's MXID (for avatar outlining)
-+    int activeMemberCount = 0; // Non-local member count used for DM vs group classification
++    int activeMemberCount = 0; // Number of real (non-bridge-bot) members
 +};
 +
  class TimelineModel;
  class TimelineViewManager;
  
-@@ -73,6 +82,7 @@ public:
-         HasUnreadMessages,
-         HasLoudNotification,
-         NotificationCount,
-+        UnreadMessages,
-         IsInvite,
-         IsSpace,
-         IsPreview,
-@@ -81,6 +91,9 @@ public:
+@@ -81,6 +90,9 @@ public:
          ParentSpaces,
          IsDirect,
          DirectChatOtherUserId,
@@ -3029,7 +2663,7 @@ index 7dfeb70..0bc5475 100644
      };
  
      RoomlistModel(TimelineViewManager *parent = nullptr);
-@@ -129,6 +142,12 @@ public slots:
+@@ -129,6 +141,12 @@ public slots:
          emit currentRoomChanged("");
      }
  
@@ -3042,7 +2676,7 @@ index 7dfeb70..0bc5475 100644
  private slots:
      void updateReadStatus(const std::map<QString, bool> &roomReadStatus_);
  
-@@ -155,6 +174,9 @@ private:
+@@ -155,6 +173,9 @@ private:
  
      std::map<QString, std::vector<QString>> directChatToUser;
  
@@ -3052,7 +2686,7 @@ index 7dfeb70..0bc5475 100644
  #ifdef NHEKO_DBUS_SYS
      NhekoDBusBackend *dbusInterface_;
      friend class NhekoDBusBackend;
-@@ -195,6 +217,7 @@ public slots:
+@@ -195,6 +216,7 @@ public slots:
      void leave(QString roomid, QString reason = "") { roomlistmodel->leave(roomid, reason); }
      void toggleTag(const QString &roomid, const QString &tag, bool on);
      void copyLink(QString roomid);
@@ -3060,22 +2694,7 @@ index 7dfeb70..0bc5475 100644
  
      TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
      RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
-@@ -216,7 +239,13 @@ public slots:
-         beginFilterChange();
- #endif
- 
--        if (tagId.startsWith(QLatin1String("tag:"))) {
-+        if (tagId == QLatin1String("tag:virtual:unread")) {
-+            filterType = FilterBy::VirtualUnread;
-+            filterStr.clear();
-+        } else if (tagId == QLatin1String("tag:virtual:groups")) {
-+            filterType = FilterBy::VirtualGroups;
-+            filterStr.clear();
-+        } else if (tagId.startsWith(QLatin1String("tag:"))) {
-             filterType = FilterBy::Tag;
-             filterStr  = tagId.mid(4);
-         } else if (tagId.startsWith(QLatin1String("space:"))) {
-@@ -248,12 +277,15 @@ private:
+@@ -248,6 +270,7 @@ private:
      RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
@@ -3083,14 +2702,6 @@ index 7dfeb70..0bc5475 100644
  
      enum class FilterBy
      {
-         Tag,
-         Space,
-         DirectChats,
-+        VirtualUnread,
-+        VirtualGroups,
-         Nothing,
-     };
-     QString filterStr   = QLatin1String("");
 diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
 index 6233682..0fd1671 100644
 --- a/src/timeline/TimelineModel.cpp
