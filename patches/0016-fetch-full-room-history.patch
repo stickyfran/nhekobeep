@@ -1,0 +1,191 @@
+# patches/0016-fetch-full-room-history.patch
+#
+# Epic 3: "Fetch Full History" Button per Room
+#
+# Provides a one-click way to aggressively fetch the entire message history
+# for the current room, bypassing the standard small-chunk pagination.
+#
+# == Changes ==
+#
+# 1. src/timeline/TimelineModel.h
+#    - Add Q_PROPERTY(bool fullHistoryFetching ...) for QML binding
+#    - Add Q_INVOKABLE void fetchFullRoomHistory() exposed to QML
+#    - Add bool fullHistoryFetching() const accessor
+#    - Add fullHistoryFetchingChanged() signal
+#    - Add fetchFullHistoryPage() private slot for chained HTTP fetches
+#    - Add m_fullHistoryFetching boolean member
+#
+# 2. src/timeline/TimelineModel.cpp
+#    - Implement fetchFullRoomHistory(): sets flag, kicks off chain
+#    - Implement fetchFullHistoryPage(): calls /messages with limit=1000,
+#      emits EventStore::oldMessagesRetrieved to reuse existing insertion
+#      pipeline, chains next page via QTimer::singleShot(0, ...) to avoid
+#      stack overflow and UI thread blocking.
+#
+# 3. resources/qml/TopBar.qml
+#    - Add "Fetch Full History" MenuItem in the room options menu
+#    - Show disabled + "Fetching..." text while fetch is in progress
+#
+diff --git a/src/timeline/TimelineModel.h b/src/timeline/TimelineModel.h
+index db7cee5..a51063a 100644
+--- a/src/timeline/TimelineModel.h
++++ b/src/timeline/TimelineModel.h
+@@ -206,6 +206,7 @@ class TimelineModel final : public QAbstractListModel
+     Q_PROPERTY(QString thread READ thread WRITE setThread NOTIFY threadChanged RESET resetThread)
+     Q_PROPERTY(
+       bool paginationInProgress READ paginationInProgress NOTIFY paginationInProgressChanged)
++    Q_PROPERTY(bool fullHistoryFetching READ fullHistoryFetching NOTIFY fullHistoryFetchingChanged)
+     Q_PROPERTY(QString roomId READ roomId CONSTANT)
+     Q_PROPERTY(QString roomName READ roomName NOTIFY roomNameChanged)
+     Q_PROPERTY(QString plainRoomName READ plainRoomName NOTIFY roomNameChanged)
+@@ -354,7 +355,8 @@ public:
+         beginResetModel();
+         endResetModel();
+     }
+-
++ 
++    Q_INVOKABLE void fetchFullRoomHistory();
+     Q_INVOKABLE void requestKeyForEvent(const QString &id);
+ 
+     std::vector<::Reaction> reactions(const std::string &event_id)
+@@ -419,6 +421,7 @@ public slots:
+     }
+     QStringList typingUsers() const { return typingUsers_; }
+     bool paginationInProgress() const { return m_paginationInProgress; }
++    bool fullHistoryFetching() const { return m_fullHistoryFetching; }
+     QString reply() const { return reply_; }
+     void setReply(const QString &newReply);
+     void resetReply()
+@@ -468,6 +471,7 @@ public slots:
+ private slots:
+     void addPendingMessage(mtx::events::collections::TimelineEvents event);
+     void scrollTimerEvent();
++    void fetchFullHistoryPage();
+ 
+ signals:
+     void dataAtIdChanged(QString id);
+@@ -482,6 +486,7 @@ signals:
+     void openReadReceiptsDialog(ReadReceiptsProxy *rr);
+     void showRawMessageDialog(QString rawMessage);
+     void paginationInProgressChanged(const bool);
++    void fullHistoryFetchingChanged();
+     void newCallEvent(const mtx::events::collections::TimelineEvents &event);
+     void scrollToIndex(int index);
+     void confetti();
+@@ -555,6 +560,7 @@ private:
+ 
+     bool decryptDescription     = true;
+     bool m_paginationInProgress = false;
++    bool m_fullHistoryFetching  = false;
+     bool isSpace_               = false;
+     bool isEncrypted_           = false;
+     std::string last_event_id;
+diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
+index 6233682..3b70a6e 100644
+--- a/src/timeline/TimelineModel.cpp
++++ b/src/timeline/TimelineModel.cpp
+@@ -1102,6 +1102,79 @@ TimelineModel::fetchMore(const QModelIndex &)
+     setPaginationInProgress(true);
+ }
+ 
++void
++TimelineModel::fetchFullRoomHistory()
++{
++    if (m_fullHistoryFetching) {
++        nhlog::ui()->warn("fetchFullRoomHistory: Already fetching full history for room {}",
++                          room_id_.toStdString());
++        return;
++    }
++
++    auto token = cache::client()->previousBatchToken(room_id_.toStdString());
++    if (token.empty()) {
++        nhlog::ui()->info("fetchFullRoomHistory: No previous batch token for room {}",
++                          room_id_.toStdString());
++        return;
++    }
++
++    nhlog::ui()->info("fetchFullRoomHistory: Starting full history fetch for room {}",
++                      room_id_.toStdString());
++
++    m_fullHistoryFetching = true;
++    emit fullHistoryFetchingChanged();
++
++    QTimer::singleShot(0, this, &TimelineModel::fetchFullHistoryPage);
++}
++
++void
++TimelineModel::fetchFullHistoryPage()
++{
++    if (!m_fullHistoryFetching)
++        return;
++
++    auto token = cache::client()->previousBatchToken(room_id_.toStdString());
++    if (token.empty()) {
++        nhlog::ui()->info("fetchFullHistoryPage: No more pages for room {}",
++                          room_id_.toStdString());
++        m_fullHistoryFetching = false;
++        emit fullHistoryFetchingChanged();
++        return;
++    }
++
++    mtx::http::MessagesOpts opts;
++    opts.room_id = room_id_.toStdString();
++    opts.from    = token;
++    opts.limit   = 1000;
++    opts.dir     = mtx::http::PaginationDirection::Backwards;
++
++    nhlog::ui()->debug("fetchFullHistoryPage: Fetching page for room {}, token: {}",
++                       opts.room_id, opts.from);
++
++    http::client()->messages(
++      opts,
++      [this, token](const mtx::responses::Messages &res, mtx::http::RequestErr err) {
++          if (err) {
++              nhlog::net()->error("fetchFullHistoryPage: /messages failed for room {}: {}",
++                                  room_id_.toStdString(), err->matrix_error.error);
++              m_fullHistoryFetching = false;
++              emit fullHistoryFetchingChanged();
++              return;
++          }
++
++          emit events.oldMessagesRetrieved(res);
++
++          if (res.end.empty() || res.end == token) {
++              nhlog::ui()->info("fetchFullRoomHistory: Completed for room {}",
++                                room_id_.toStdString());
++              m_fullHistoryFetching = false;
++              emit fullHistoryFetchingChanged();
++          } else {
++              QTimer::singleShot(0, this, &TimelineModel::fetchFullHistoryPage);
++          }
++      });
++}
++
+ void
+ TimelineModel::sync(const mtx::responses::JoinedRoom &room)
+ {
+diff --git a/resources/qml/TopBar.qml b/resources/qml/TopBar.qml
+index cd20e94..799aee3 100644
+--- a/resources/qml/TopBar.qml
++++ b/resources/qml/TopBar.qml
+@@ -285,6 +285,20 @@ Pane {
+ 
+                         onTriggered: TimelineManager.openRoomSettings(roomId)
+                     }
++                    MenuSeparator {}
++                    MenuItem {
++                        id: fetchHistoryItem
++
++                        enabled: room && !room.fullHistoryFetching
++                        text: room && room.fullHistoryFetching
++                              ? qsTr("Fetching full history...")
++                              : qsTr("Fetch full history")
++
++                        onTriggered: {
++                            if (room)
++                                room.fetchFullRoomHistory();
++                        }
++                    }
+                 }
+             }
+             ScrollView {
