@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..fb009ab 100644
+index a134474..5c24197 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,98 @@ Page {
@@ -379,7 +379,7 @@ index a134474..fb009ab 100644
  
                      Layout.alignment: Qt.AlignVCenter
                      color: communityItem.backgroundColor
-@@ -230,6 +374,161 @@ Page {
+@@ -230,6 +374,136 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -456,38 +456,14 @@ index a134474..fb009ab 100644
 +            }
 +            MenuSeparator {}
 +            MenuItem {
-+                // Show edit label option for custom labels (u.* tags with a CustomLabelListModel entry)
-+                readonly property bool isCustomLabel: {
-+                    var tagPart = communityContextMenu.tagId;
-+                    if (tagPart.startsWith("tag:"))
-+                        tagPart = tagPart.substring(4);
-+                    for (var i = 0; i < CustomLabelListModel.rowCount(); i++) {
-+                        var idx = CustomLabelListModel.index(i, 0);
-+                        if (CustomLabelListModel.data(idx, 0x0100) === tagPart) // TagRole = Qt::UserRole
-+                            return true;
-+                    }
-+                    return false;
-+                }
++                readonly property string pureTag: communityContextMenu.tagId.startsWith("tag:") ? communityContextMenu.tagId.substring(4) : communityContextMenu.tagId
++
 +                text: qsTr("Edit Label...")
-+                visible: isCustomLabel
++                // Show for any tag that already has a custom label OR any raw Beeper folder
++                visible: CustomLabelListModel.displayNameForTag(pureTag) !== "" || pureTag.startsWith("u.")
 +                onTriggered: {
-+                    var tagPart = communityContextMenu.tagId;
-+                    if (tagPart.startsWith("tag:"))
-+                        tagPart = tagPart.substring(4);
-+                    // Locate the row index in CustomLabelListModel for this tag
-+                    var row = -1;
-+                    for (var i = 0; i < CustomLabelListModel.rowCount(); i++) {
-+                        var idx = CustomLabelListModel.index(i, 0);
-+                        if (CustomLabelListModel.data(idx, 0x0100) === tagPart) {
-+                            row = i;
-+                            break;
-+                        }
-+                    }
-+                    if (row < 0)
-+                        return;
 +                    var dialog = editCustomLabelComponent.createObject(communitySidebar, {
-+                        "labelRow": row,
-+                        "labelTag": tagPart
++                        "labelTag": pureTag
 +                    });
 +                    dialog.open();
 +                }
@@ -497,7 +473,6 @@ index a134474..fb009ab 100644
 +
 +                    Dialog {
 +                        id: editCustomLabelDialog
-+                        property int labelRow: -1
 +                        property string labelTag: ""
 +                        title: qsTr("Edit Label: ") + labelTag
 +                        standardButtons: Dialog.Save | Dialog.Cancel
@@ -528,8 +503,8 @@ index a134474..fb009ab 100644
 +
 +                        onAccepted: {
 +                            if (editLabelNameField.text.length > 0) {
-+                                CustomLabelListModel.updateLabel(
-+                                    editCustomLabelDialog.labelRow,
++                                // addLabel handles upsert internally; no row index needed.
++                                CustomLabelListModel.addLabel(
 +                                    editCustomLabelDialog.labelTag,
 +                                    editLabelNameField.text,
 +                                    editLabelIconField.text.length > 0 ? editLabelIconField.text : "");
@@ -2509,7 +2484,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..6f1415b 100644
+index ce2a8f8..a514d96 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2611,7 +2586,14 @@ index ce2a8f8..6f1415b 100644
  RoomlistModel::RoomlistModel(TimelineViewManager *parent)
    : QAbstractListModel(parent)
    , manager(parent)
-@@ -87,6 +172,9 @@ RoomlistModel::roleNames() const
+@@ -81,12 +166,16 @@ RoomlistModel::roleNames() const
+       {HasUnreadMessages, "hasUnreadMessages"},
+       {HasLoudNotification, "hasLoudNotification"},
+       {NotificationCount, "notificationCount"},
++      {UnreadMessages, "unreadMessages"},
+       {IsInvite, "isInvite"},
+       {IsSpace, "isSpace"},
+       {Tags, "tags"},
        {ParentSpaces, "parentSpaces"},
        {IsDirect, "isDirect"},
        {DirectChatOtherUserId, "directChatOtherUserId"},
@@ -2621,7 +2603,7 @@ index ce2a8f8..6f1415b 100644
      };
  }
  
-@@ -106,7 +194,15 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -106,7 +195,15 @@ RoomlistModel::data(const QModelIndex &index, int role) const
          } else if (role == Roles::RoomId) {
              return roomid;
          } else if (role == Roles::IsDirect) {
@@ -2638,7 +2620,16 @@ index ce2a8f8..6f1415b 100644
          } else if (role == Roles::DirectChatOtherUserId) {
              return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
                                                    : QLatin1String("");
-@@ -145,6 +241,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -131,6 +228,8 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return room->hasMentions();
+             case Roles::NotificationCount:
+                 return room->notificationCount();
++            case Roles::UnreadMessages:
++                return room->notificationCount();
+             case Roles::IsInvite:
+                 return false;
+             case Roles::IsSpace:
+@@ -145,6 +244,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                      list.push_back(QString::fromStdString(t));
                  return list;
              }
@@ -2651,7 +2642,7 @@ index ce2a8f8..6f1415b 100644
              default:
                  return {};
              }
-@@ -174,6 +276,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -174,6 +279,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2664,7 +2655,7 @@ index ce2a8f8..6f1415b 100644
              default:
                  return {};
              }
-@@ -205,6 +313,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -205,6 +316,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return true;
              case Roles::Tags:
                  return QStringList();
@@ -2677,7 +2668,7 @@ index ce2a8f8..6f1415b 100644
              default:
                  return {};
              }
-@@ -236,6 +350,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -236,6 +353,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2690,7 +2681,7 @@ index ce2a8f8..6f1415b 100644
              default:
                  return {};
              }
-@@ -374,6 +494,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
+@@ -374,6 +497,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
                (int)(roomids.size() + previewsToAdd.size() - ((wasInvite || wasPreview) ? 1 : 0)));
  
          models.insert(room_id, std::move(newRoom));
@@ -2698,7 +2689,7 @@ index ce2a8f8..6f1415b 100644
          if (wasInvite) {
              auto idx = roomidToIndex(room_id);
              invites.remove(room_id);
-@@ -518,8 +639,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -518,8 +642,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
                std::get_if<mtx::events::AccountDataEvent<mtx::events::account_data::Direct>>(&e)) {
              auto updatedDMs = updateDMs(*event);
              for (const auto &r : updatedDMs) {
@@ -2713,7 +2704,7 @@ index ce2a8f8..6f1415b 100644
              }
          }
      }
-@@ -559,8 +684,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -559,8 +687,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
          for (const auto &e : room.account_data.events) {
              if (std::holds_alternative<
                    mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
@@ -2726,7 +2717,7 @@ index ce2a8f8..6f1415b 100644
              }
          }
      }
-@@ -636,6 +763,11 @@ RoomlistModel::initializeRooms()
+@@ -636,6 +766,11 @@ RoomlistModel::initializeRooms()
  
      endResetModel();
  
@@ -2738,7 +2729,7 @@ index ce2a8f8..6f1415b 100644
  #ifdef NHEKO_DBUS_SYS
      if (MainWindow::instance()->dbusAvailable()) {
          dbusInterface_ = new NhekoDBusBackend{this};
-@@ -653,6 +785,7 @@ RoomlistModel::clear()
+@@ -653,6 +788,7 @@ RoomlistModel::clear()
      models.clear();
      invites.clear();
      roomids.clear();
@@ -2746,32 +2737,26 @@ index ce2a8f8..6f1415b 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +961,81 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +964,85 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
 +void
 +RoomlistModel::updateNetworkCache(const QString &roomid)
 +{
-+    // 1. Check standard DMs
-+    if (directChatToUser.count(roomid)) {
-+        const auto &userId = directChatToUser.at(roomid).front();
-+        auto info          = beeperNetworkFromMxid(userId);
-+        networkCache.insert(roomid, {info.name, info.color, userId, 1});
-+        return;
-+    }
++    // ALWAYS fetch members first for EVERY room. This is the canonical source
++    // for distinguishing 1:1 DMs from group chats, since Beeper places bridged
++    // group chats into the m.direct account data.  By checking members first we
++    // correctly identify large WhatsApp/Telegram groups (bridge-bot + 2+ real
++    // users = activeMembers > 2) as groups (IsDirect = false).
++    bool isBeeperBridge = false;
++    QString counterpart;
++    BeeperNetworkInfo netInfo;
++    int activeMembers = 0;
 +
-+    // 2. Check Beeper bridged rooms (Both DMs and Groups)
 +    if (models.contains(roomid)) {
-+        auto local = cache::client()->localUserId();
-+        // Fetch all members via LMDB. This is the canonical source for
-+        // determining whether a room is a Beeper 1:1 DM or a group chat.
++        auto local   = cache::client()->localUserId();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
-+
-+        bool isBeeperBridge = false;
-+        QString counterpart;
-+        BeeperNetworkInfo netInfo;
-+        int activeMembers = 0;
 +
 +        for (const auto &m : members) {
 +            if (m.user_id == local)
@@ -2789,19 +2774,29 @@ index ce2a8f8..6f1415b 100644
 +                counterpart = mxid;
 +            }
 +        }
++    }
 +
-+        if (isBeeperBridge) {
-+            if (activeMembers <= 2) {
-+                // 1:1 DM  (local user + bot + 1 real contact = 3 total)
-+                networkCache.insert(
-+                  roomid, {netInfo.name, netInfo.color, counterpart, activeMembers});
-+            } else {
-+                // Group chat (local user + bot + 2+ real contacts = 4+ total)
-+                networkCache.insert(
-+                  roomid, {netInfo.name, netInfo.color, QString(), activeMembers});
-+            }
-+            return;
++    if (isBeeperBridge) {
++        if (activeMembers > 2) {
++            // Group chat (bot + 2+ real contacts = total > 3 members).
++            // Clear counterpart so IsDirect returns false.
++            networkCache.insert(
++              roomid, {netInfo.name, netInfo.color, QString(), activeMembers});
++        } else {
++            // 1:1 DM  (local user + bot + 1 real contact = total <= 3)
++            networkCache.insert(
++              roomid, {netInfo.name, netInfo.color, counterpart, activeMembers});
 +        }
++        return;
++    }
++
++    // Fallback: native Matrix rooms without a bridge bot.
++    // Only consult the directChatToUser map for real 1:1 DMs.
++    if (directChatToUser.count(roomid)) {
++        const auto &userId = directChatToUser.at(roomid).front();
++        auto info          = beeperNetworkFromMxid(userId);
++        networkCache.insert(roomid, {info.name, info.color, userId, 1});
++        return;
 +    }
 +
 +    // No bridge detected
@@ -2832,7 +2827,7 @@ index ce2a8f8..6f1415b 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1063,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1070,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2849,7 +2844,7 @@ index ce2a8f8..6f1415b 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1123,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1130,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2857,7 +2852,7 @@ index ce2a8f8..6f1415b 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1143,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1150,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2872,7 +2867,7 @@ index ce2a8f8..6f1415b 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1173,6 +1386,37 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
+@@ -1173,6 +1393,39 @@ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) cons
          }
  
          return true;
@@ -2892,8 +2887,10 @@ index ce2a8f8..6f1415b 100644
 +          sourceModel()->data(idx, RoomlistModel::HasUnreadMessages).toBool();
 +        const int notifCount =
 +          sourceModel()->data(idx, RoomlistModel::NotificationCount).toInt();
++        const int msgCount =
++          sourceModel()->data(idx, RoomlistModel::UnreadMessages).toInt();
 +
-+        return hasUnread || notifCount > 0;
++        return hasUnread || notifCount > 0 || msgCount > 0;
 +    } else if (filterType == FilterBy::VirtualGroups) {
 +        // Virtual groups filter: Bypass ALL standard tag/space/DM hiding hooks.
 +        // Do NOT check hiddenTags, hiddenSpaces, or hideDMs.
@@ -2910,7 +2907,7 @@ index ce2a8f8..6f1415b 100644
      } else {
          return true;
      }
-@@ -1200,6 +1444,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1453,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2963,7 +2960,7 @@ index ce2a8f8..6f1415b 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..d6a7bfc 100644
+index 7dfeb70..ba313ee 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -2989,7 +2986,15 @@ index 7dfeb70..d6a7bfc 100644
  class TimelineModel;
  class TimelineViewManager;
  
-@@ -81,6 +90,9 @@ public:
+@@ -73,6 +82,7 @@ public:
+         HasUnreadMessages,
+         HasLoudNotification,
+         NotificationCount,
++        UnreadMessages,
+         IsInvite,
+         IsSpace,
+         IsPreview,
+@@ -81,6 +91,9 @@ public:
          ParentSpaces,
          IsDirect,
          DirectChatOtherUserId,
@@ -2999,7 +3004,7 @@ index 7dfeb70..d6a7bfc 100644
      };
  
      RoomlistModel(TimelineViewManager *parent = nullptr);
-@@ -129,6 +141,12 @@ public slots:
+@@ -129,6 +142,12 @@ public slots:
          emit currentRoomChanged("");
      }
  
@@ -3012,7 +3017,7 @@ index 7dfeb70..d6a7bfc 100644
  private slots:
      void updateReadStatus(const std::map<QString, bool> &roomReadStatus_);
  
-@@ -155,6 +173,9 @@ private:
+@@ -155,6 +174,9 @@ private:
  
      std::map<QString, std::vector<QString>> directChatToUser;
  
@@ -3022,7 +3027,7 @@ index 7dfeb70..d6a7bfc 100644
  #ifdef NHEKO_DBUS_SYS
      NhekoDBusBackend *dbusInterface_;
      friend class NhekoDBusBackend;
-@@ -195,6 +216,7 @@ public slots:
+@@ -195,6 +217,7 @@ public slots:
      void leave(QString roomid, QString reason = "") { roomlistmodel->leave(roomid, reason); }
      void toggleTag(const QString &roomid, const QString &tag, bool on);
      void copyLink(QString roomid);
@@ -3030,7 +3035,7 @@ index 7dfeb70..d6a7bfc 100644
  
      TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
      RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
-@@ -226,6 +248,12 @@ public slots:
+@@ -226,6 +249,12 @@ public slots:
          } else if (tagId.startsWith(QLatin1String("dm"))) {
              filterType = FilterBy::DirectChats;
              filterStr.clear();
@@ -3043,7 +3048,7 @@ index 7dfeb70..d6a7bfc 100644
          } else {
              filterType = FilterBy::Nothing;
              filterStr.clear();
-@@ -248,12 +276,15 @@ private:
+@@ -248,12 +277,15 @@ private:
      RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
