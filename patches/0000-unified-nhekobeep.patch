@@ -2598,7 +2598,7 @@ index ce2a8f8..07f7a54 100644
 +                continue;
 +            activeMembers++;
 +
-+            QString mxid = QString::fromStdString(m.user_id);
++            QString mxid = m.user_id;
 +            if (mxid.contains(QStringLiteral("bot"), Qt::CaseInsensitive) &&
 +                mxid.contains(QStringLiteral(":beeper."))) {
 +                isBeeperBridge = true;
