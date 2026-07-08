@@ -19,6 +19,24 @@ All changes **MUST** be consolidated into **one and only one** patch file:
 - Plans and documentation go in [`plans/`](plans/)
 - Individual numbered patches (`0007-*` through `0018-*`) are **forbidden** — they live archived in [`patches/archive/`](patches/archive/)
 
+---
+
+## STRICT PATCH AND UNIFIED DIFF GENERATION RULES
+
+You are prone to generating corrupt `.patch` files due to incorrect hunk math and indentation errors. Whenever you generate or output a unified diff or `.patch` file, you MUST strictly obey the following formatting rules:
+
+1. **NO LEADING SPACES ON MARKERS:** A line adding or removing code MUST start exactly with `+` or `-` as the absolute first character (index 0). NEVER prepend spaces or tabs before `+` or `-`.
+2. **STRICT CONTEXT INDENTATION:** Unmodified context lines MUST begin with exactly one single space.
+3. **BLANK CONTEXT LINES:** If an unmodified context line is blank, it MUST contain exactly one space. It cannot be completely empty.
+4. **PERFECT HUNK MATH:** You must double-check the hunk headers (`@@ -x,y +z,w @@`). 
+   - `y` MUST exactly equal the number of context lines PLUS the number of deleted (`-`) lines.
+   - `w` MUST exactly equal the number of context lines PLUS the number of added (`+`) lines.
+   - If the math is wrong, the `git apply` or `patch` command will fail with "corrupt patch".
+5. **AVOID LARGE DIFFS:** If a change is massive, prefer using semantic search/replace tools (like `replace_in_file`) instead of generating raw `.patch` content blocks, as your context window math will likely fail.
+6. **NO GHOST VARIABLES:** Do not introduce code variables, methods, or properties in the diff that have not been explicitly verified to exist in the target codebase version.
+
+---
+
 ### How to regenerate the unified patch after making changes:
 ```bash
 # 1. Clean nheko submodule
@@ -38,10 +56,3 @@ git -C nheko diff HEAD > patches/0000-unified-nhekobeep.patch
 
 # 6. Verify
 ./patches/patch-manager.sh
-```
-
-### Patch file structure:
-- [`patches/0000-unified-nhekobeep.patch`](patches/0000-unified-nhekobeep.patch) — The single unified patch
-- [`patches/new-files/`](patches/new-files/) — New files to be introduced by the patch
-- [`patches/archive/`](patches/archive/) — Deprecated/archived individual patches (do not use)
-- [`patches/patch-manager.sh`](patches/patch-manager.sh) — Build script (only applies `0000-unified-nhekobeep.patch`)
