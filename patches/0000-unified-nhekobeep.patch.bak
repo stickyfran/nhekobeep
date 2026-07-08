@@ -2238,7 +2238,7 @@ index a707c10..0940ed3 100644
              case CommunitiesModel::Roles::DisplayName:
                  return tr("Low Priority");
              case CommunitiesModel::Roles::Tooltip:
-@@ -184,18 +206,71 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+@@ -184,18 +206,51 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
          } else if (tag == QLatin1String("m.server_notice")) {
              switch (role) {
              case CommunitiesModel::Roles::AvatarUrl:
