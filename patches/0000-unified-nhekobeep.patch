@@ -200,7 +200,7 @@ index 6217d70..2fb95c9 100644
  
          Connections {
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
-index a134474..b46d4fa 100644
+index a134474..336685e 100644
 --- a/resources/qml/CommunitiesList.qml
 +++ b/resources/qml/CommunitiesList.qml
 @@ -29,12 +29,99 @@ Page {
@@ -304,15 +304,66 @@ index a134474..b46d4fa 100644
          model: Communities.filtered()
          boundsBehavior: Flickable.StopAtBounds
  
-@@ -139,6 +226,7 @@ Page {
+@@ -139,8 +226,58 @@ Page {
                      Layout.preferredWidth: fontMetrics.lineSpacing
                      visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
                  }
 +
++                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
++                readonly property bool isEmojiIcon: {
++                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                        return false;
++                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
++                    if (model.avatarUrl.startsWith("mxc://") ||
++                        model.avatarUrl.startsWith(":/") ||
++                        model.avatarUrl.startsWith("image://"))
++                        return false;
++                    return true;
++                }
++
++                // Emoji icon display (for custom label emoji icons).
++                Item {
++                    Layout.alignment: Qt.AlignVCenter
++                    Layout.preferredHeight: avatarSize
++                    Layout.preferredWidth: avatarSize
++                    visible: isEmojiIcon
++
++                    Rectangle {
++                        anchors.fill: parent
++                        color: communityItem.backgroundColor
++                        radius: Settings.avatarCircles ? height / 2 : height / 8
++
++                        Label {
++                            anchors.centerIn: parent
++                            text: model.avatarUrl
++                            font.pixelSize: avatarSize * 0.55
++                            horizontalAlignment: Text.AlignHCenter
++                            verticalAlignment: Text.AlignVCenter
++                            textFormat: Text.PlainText
++                        }
++                    }
++
++                    NotificationBubble {
++                        anchors.bottom: parent.bottom
++                        anchors.margins: -Nheko.paddingSmall
++                        anchors.right: parent.right
++                        bubbleBackgroundColor: communityItem.bubbleBackground
++                        bubbleTextColor: communityItem.bubbleText
++                        font.pixelSize: fontMetrics.font.pixelSize * 0.6
++                        hasLoudNotification: model.hasLoudNotification
++                        mayBeVisible: communitySidebar.collapsed && !model.muted && Settings.spaceNotifications
++                        notificationCount: model.unreadMessages
++                    }
++                }
++
++                // Standard avatar display (for MXC, SVG, and image provider icons).
                  Avatar {
                      id: avatar
++                    visible: !isEmojiIcon
  
-@@ -230,6 +318,97 @@ Page {
+                     Layout.alignment: Qt.AlignVCenter
+                     color: communityItem.backgroundColor
+@@ -230,6 +367,97 @@ Page {
  
                  onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
              }
@@ -1957,7 +2008,7 @@ index bc13cdc..f042090 100644
      parser.addHelpOption();
      parser.addVersionOption();
 diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
-index a707c10..b42df57 100644
+index a707c10..02161a1 100644
 --- a/src/timeline/CommunitiesModel.cpp
 +++ b/src/timeline/CommunitiesModel.cpp
 @@ -5,6 +5,7 @@
@@ -1968,43 +2019,17 @@ index a707c10..b42df57 100644
  #include <set>
  
  #include "Cache.h"
-@@ -25,6 +26,27 @@ CommunitiesModel::CommunitiesModel(QObject *parent)
-     instance_ = this;
- }
- 
-+QStringList
-+CommunitiesModel::tags() const
-+{
-+    QStringList result;
-+    for (const auto &t : tags_)
-+        if (!t.startsWith(QLatin1String("virtual:")))
-+            result.push_back(t);
-+    return result;
-+}
-+
-+QStringList
-+CommunitiesModel::tagsWithDefault() const
-+{
-+    auto t = tags();
-+    t.removeOne(QStringLiteral("m.server_notice"));
-+    t.removeDuplicates();
-+    t.prepend(QStringLiteral("m.lowpriority"));
-+    t.prepend(QStringLiteral("m.favourite"));
-+    return t;
-+}
-+
- QHash<int, QByteArray>
- CommunitiesModel::roleNames() const
- {
-@@ -190,6 +212,30 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+@@ -190,12 +191,48 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
              case CommunitiesModel::Roles::Tooltip:
                  return tr("Messages from your server or administrator.");
              }
 +        } else if (tag == QLatin1String("virtual:unread")) {
 +            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                return QStringLiteral(":/icons/icons/ui/alert.svg");
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
++                return QStringLiteral("qrc:/icons/icons/ui/alert.svg");
 +            case CommunitiesModel::Roles::DisplayName:
 +                return customName.isEmpty() ? tr("Unread") : customName;
 +            case CommunitiesModel::Roles::Tooltip:
@@ -2016,18 +2041,34 @@ index a707c10..b42df57 100644
 +            }
 +        } else if (tag == QLatin1String("virtual:groups")) {
 +            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
 +            switch (role) {
 +            case CommunitiesModel::Roles::AvatarUrl:
-+                return QStringLiteral(":/icons/icons/ui/people.svg");
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
++                return QStringLiteral("qrc:/icons/icons/ui/people.svg");
 +            case CommunitiesModel::Roles::DisplayName:
 +                return customName.isEmpty() ? tr("Groups") : customName;
 +            case CommunitiesModel::Roles::Tooltip:
 +                return tr("Group chats.");
 +            }
          } else {
++            // Check for Beeper custom label override
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++
              switch (role) {
              case CommunitiesModel::Roles::AvatarUrl:
-@@ -365,6 +411,10 @@ CommunitiesModel::initializeSidebar()
++                if (!customIcon.isEmpty())
++                    return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+             case CommunitiesModel::Roles::Tooltip:
++                if (!customName.isEmpty())
++                    return customName;
+                 return tag.mid(2);
+             }
+         }
+@@ -365,6 +402,10 @@ CommunitiesModel::initializeSidebar()
      for (const auto &t : ts)
          tags_.push_back(QString::fromStdString(t));
  
@@ -2038,27 +2079,7 @@ index a707c10..b42df57 100644
      spaceOrder_.restoreCollapsed();
  
      for (auto &space : spaceOrder_.tree) {
-@@ -702,6 +752,8 @@ namespace {
- enum Categories
- {
-     World,
-+    VirtualUnread,
-+    VirtualGroups,
-     Direct,
-     Favourites,
-     Server,
-@@ -717,6 +769,10 @@ tagIdToCat(const QString &tagId)
-         return World;
-     else if (tagId == QLatin1String("dm"))
-         return Direct;
-+    else if (tagId == QLatin1String("tag:virtual:unread"))
-+        return VirtualUnread;
-+    else if (tagId == QLatin1String("tag:virtual:groups"))
-+        return VirtualGroups;
-     else if (tagId == QLatin1String("tag:m.favourite"))
-         return Favourites;
-     else if (tagId == QLatin1String("tag:m.server_notice"))
-@@ -937,4 +993,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
+@@ -937,4 +978,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
      }
  }
  
@@ -2182,7 +2203,7 @@ index a707c10..b42df57 100644
 +
  #include "moc_CommunitiesModel.cpp"
 diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
-index 7af6d05..cd779e3 100644
+index 7af6d05..1155cb0 100644
 --- a/src/timeline/CommunitiesModel.h
 +++ b/src/timeline/CommunitiesModel.h
 @@ -198,6 +198,10 @@ public:
@@ -2196,26 +2217,7 @@ index 7af6d05..cd779e3 100644
  
  public slots:
      void initializeSidebar();
-@@ -211,16 +215,8 @@ public slots:
-         currentTagId_.clear();
-         emit currentTagIdChanged(currentTagId_);
-     }
--    QStringList tags() const { return tags_; }
--    QStringList tagsWithDefault() const
--    {
--        QStringList tagsWD = tags_;
--        tagsWD.prepend(QStringLiteral("m.lowpriority"));
--        tagsWD.prepend(QStringLiteral("m.favourite"));
--        tagsWD.removeOne(QStringLiteral("m.server_notice"));
--        tagsWD.removeDuplicates();
--        return tagsWD;
--    }
-+    QStringList tags() const;
-+    QStringList tagsWithDefault() const;
-     void toggleTagId(QString tagId);
-     void toggleTagMute(QString tagId);
- 
-@@ -231,6 +227,10 @@ signals:
+@@ -231,6 +235,10 @@ signals:
      void hiddenTagsChanged();
      void tagsChanged();
      void containsSubspacesChanged();
@@ -2227,7 +2229,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..b175922 100644
+index ce2a8f8..a022631 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2339,7 +2341,20 @@ index ce2a8f8..b175922 100644
      };
  }
  
-@@ -145,6 +233,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -106,6 +194,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+         } else if (role == Roles::RoomId) {
+             return roomid;
+         } else if (role == Roles::IsDirect) {
++            if (networkCache.contains(roomid)) {
++                const auto &netInfo = networkCache.value(roomid);
++                if (!netInfo.name.isEmpty()) {
++                    return netInfo.activeMemberCount <= 1;
++                }
++            }
+             return directChatToUser.count(roomid) > 0;
+         } else if (role == Roles::DirectChatOtherUserId) {
+             return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
+@@ -145,6 +239,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                      list.push_back(QString::fromStdString(t));
                  return list;
              }
@@ -2352,7 +2367,7 @@ index ce2a8f8..b175922 100644
              default:
                  return {};
              }
-@@ -174,6 +268,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -174,6 +274,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2365,7 +2380,7 @@ index ce2a8f8..b175922 100644
              default:
                  return {};
              }
-@@ -205,6 +305,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -205,6 +311,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return true;
              case Roles::Tags:
                  return QStringList();
@@ -2378,7 +2393,7 @@ index ce2a8f8..b175922 100644
              default:
                  return {};
              }
-@@ -236,6 +342,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+@@ -236,6 +348,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
                  return false;
              case Roles::Tags:
                  return QStringList();
@@ -2391,7 +2406,7 @@ index ce2a8f8..b175922 100644
              default:
                  return {};
              }
-@@ -374,6 +486,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
+@@ -374,6 +492,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
                (int)(roomids.size() + previewsToAdd.size() - ((wasInvite || wasPreview) ? 1 : 0)));
  
          models.insert(room_id, std::move(newRoom));
@@ -2399,7 +2414,7 @@ index ce2a8f8..b175922 100644
          if (wasInvite) {
              auto idx = roomidToIndex(room_id);
              invites.remove(room_id);
-@@ -518,8 +631,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -518,8 +637,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
                std::get_if<mtx::events::AccountDataEvent<mtx::events::account_data::Direct>>(&e)) {
              auto updatedDMs = updateDMs(*event);
              for (const auto &r : updatedDMs) {
@@ -2414,7 +2429,7 @@ index ce2a8f8..b175922 100644
              }
          }
      }
-@@ -559,8 +676,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+@@ -559,8 +682,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
          for (const auto &e : room.account_data.events) {
              if (std::holds_alternative<
                    mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
@@ -2427,7 +2442,7 @@ index ce2a8f8..b175922 100644
              }
          }
      }
-@@ -636,6 +755,11 @@ RoomlistModel::initializeRooms()
+@@ -636,6 +761,11 @@ RoomlistModel::initializeRooms()
  
      endResetModel();
  
@@ -2439,7 +2454,7 @@ index ce2a8f8..b175922 100644
  #ifdef NHEKO_DBUS_SYS
      if (MainWindow::instance()->dbusAvailable()) {
          dbusInterface_ = new NhekoDBusBackend{this};
-@@ -653,6 +777,7 @@ RoomlistModel::clear()
+@@ -653,6 +783,7 @@ RoomlistModel::clear()
      models.clear();
      invites.clear();
      roomids.clear();
@@ -2447,7 +2462,7 @@ index ce2a8f8..b175922 100644
      currentRoom_ = nullptr;
      emit currentRoomChanged("");
      endResetModel();
-@@ -828,13 +953,67 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+@@ -828,13 +959,67 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
      }
  }
  
@@ -2460,12 +2475,12 @@ index ce2a8f8..b175922 100644
 +    int realContacts = 0;
 +
 +    if (models.contains(roomid)) {
-+        auto local = cache::client()->localUserId();
++        auto local = cache::client()->localUserId().toStdString();
 +        auto members = cache::client()->getMembers(roomid.toStdString());
 +
 +        for (const auto &m : members) {
 +            if (m.user_id == local) continue;
-+            QString mxid = m.user_id;
++            QString mxid = QString::fromStdString(m.user_id);
 +            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
 +                isBeeperBridge = true;
 +                netInfo = beeperNetworkFromMxid(mxid);
@@ -2519,7 +2534,7 @@ index ce2a8f8..b175922 100644
      NewMessage         = 1,
      NewMentions        = 2,
      Invite             = 3,
-@@ -862,12 +1041,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+@@ -862,12 +1047,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
              return NoPreview;
      } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
          return Invite;
@@ -2536,7 +2551,7 @@ index ce2a8f8..b175922 100644
      } else {
          return AllEventsRead;
      }
-@@ -919,6 +1101,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -919,6 +1107,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
  
      this->sortByImportance = UserSettings::instance()->sortByImportance();
      this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
@@ -2544,7 +2559,7 @@ index ce2a8f8..b175922 100644
      setSourceModel(model);
      setDynamicSortFilter(true);
  
-@@ -938,6 +1121,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+@@ -938,6 +1127,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
                           invalidate();
                       });
  
@@ -2559,13 +2574,50 @@ index ce2a8f8..b175922 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1005,6 +1196,17 @@ FilteredRoomlistModel::updateHiddenTagsAndSpaces()
+@@ -1005,6 +1202,54 @@ FilteredRoomlistModel::updateHiddenTagsAndSpaces()
  bool
  FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) const
  {
 +    if (filterStr == QLatin1String("virtual:unread")) {
-+        return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages).toBool() ||
-+               sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
++        // Hide spaces and unfetched previews from the unread filter.
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        if (!hiddenTags.empty()) {
++            auto tags = sourceModel()
++                          ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
++                          .toStringList();
++
++            for (const auto &t : std::as_const(tags))
++                if (hiddenTags.contains(t))
++                    return false;
++        }
++
++        if (!hiddenSpaces.empty()) {
++            auto parents = sourceModel()
++                             ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::ParentSpaces)
++                             .toStringList();
++            for (const auto &t : std::as_const(parents))
++                if (hiddenSpaces.contains(t))
++                    return false;
++        }
++
++        bool hasUnread = sourceModel()
++                           ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages)
++                           .toBool();
++        int notifCount = sourceModel()
++                           ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount)
++                           .toInt();
++        return hasUnread || notifCount > 0;
 +    }
 +    // Virtual:groups — accept only non-direct, non-space rooms (pure group chats).
 +    if (filterStr == QLatin1String("virtual:groups")) {
@@ -2577,7 +2629,7 @@ index ce2a8f8..b175922 100644
      if (filterType == FilterBy::Nothing) {
          if (sourceModel()
                ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
-@@ -1200,6 +1402,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1445,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2630,7 +2682,7 @@ index ce2a8f8..b175922 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..8c0e24b 100644
+index 7dfeb70..3783f9a 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -2697,7 +2749,18 @@ index 7dfeb70..8c0e24b 100644
  
      TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
      RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
-@@ -226,6 +248,12 @@ public slots:
+@@ -216,7 +238,9 @@ public slots:
+         beginFilterChange();
+ #endif
+ 
+-        if (tagId.startsWith(QLatin1String("tag:"))) {
++        if (tagId.startsWith(QLatin1String("tag:")) &&
++            tagId != QLatin1String("tag:virtual:unread") &&
++            tagId != QLatin1String("tag:virtual:groups")) {
+             filterType = FilterBy::Tag;
+             filterStr  = tagId.mid(4);
+         } else if (tagId.startsWith(QLatin1String("space:"))) {
+@@ -226,6 +250,12 @@ public slots:
          } else if (tagId.startsWith(QLatin1String("dm"))) {
              filterType = FilterBy::DirectChats;
              filterStr.clear();
@@ -2710,7 +2773,7 @@ index 7dfeb70..8c0e24b 100644
          } else {
              filterType = FilterBy::Nothing;
              filterStr.clear();
-@@ -248,6 +276,7 @@ private:
+@@ -248,6 +278,7 @@ private:
      RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
