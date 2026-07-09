@@ -2227,7 +2227,7 @@ index 7af6d05..cd779e3 100644
  private:
      QStringList tags_;
 diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
-index ce2a8f8..297ecdc 100644
+index ce2a8f8..b175922 100644
 --- a/src/timeline/RoomlistModel.cpp
 +++ b/src/timeline/RoomlistModel.cpp
 @@ -14,6 +14,7 @@
@@ -2559,18 +2559,16 @@ index ce2a8f8..297ecdc 100644
      connect(roomlistmodel,
              &RoomlistModel::currentRoomChanged,
              this,
-@@ -1005,6 +1196,19 @@ FilteredRoomlistModel::updateHiddenTagsAndSpaces()
+@@ -1005,6 +1196,17 @@ FilteredRoomlistModel::updateHiddenTagsAndSpaces()
  bool
  FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) const
  {
-+    // Virtual:unread — accept rooms with unread messages or pending notifications.
-+    if (filterType == FilterBy::VirtualUnread) {
++    if (filterStr == QLatin1String("virtual:unread")) {
 +        return sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages).toBool() ||
-+               sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0 ||
-+               sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::UnreadMessages).toInt() > 0;
++               sourceModel()->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount).toInt() > 0;
 +    }
 +    // Virtual:groups — accept only non-direct, non-space rooms (pure group chats).
-+    if (filterType == FilterBy::VirtualGroups) {
++    if (filterStr == QLatin1String("virtual:groups")) {
 +        const auto idx = sourceModel()->index(sourceRow, 0);
 +        return !sourceModel()->data(idx, RoomlistModel::IsDirect).toBool() &&
 +               !sourceModel()->data(idx, RoomlistModel::IsSpace).toBool();
@@ -2579,7 +2577,7 @@ index ce2a8f8..297ecdc 100644
      if (filterType == FilterBy::Nothing) {
          if (sourceModel()
                ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
-@@ -1200,6 +1404,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+@@ -1200,6 +1402,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
      }
  }
  
@@ -2632,7 +2630,7 @@ index ce2a8f8..297ecdc 100644
  FilteredRoomlistModel::copyLink(QString roomid)
  {
 diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
-index 7dfeb70..47598f3 100644
+index 7dfeb70..8c0e24b 100644
 --- a/src/timeline/RoomlistModel.h
 +++ b/src/timeline/RoomlistModel.h
 @@ -6,6 +6,7 @@
@@ -2704,15 +2702,15 @@ index 7dfeb70..47598f3 100644
              filterType = FilterBy::DirectChats;
              filterStr.clear();
 +        } else if (tagId == QLatin1String("tag:virtual:unread")) {
-+            filterType = FilterBy::VirtualUnread;
-+            filterStr.clear();
++            filterType = FilterBy::Nothing;
++            filterStr = QLatin1String("virtual:unread");
 +        } else if (tagId == QLatin1String("tag:virtual:groups")) {
-+            filterType = FilterBy::VirtualGroups;
-+            filterStr.clear();
++            filterType = FilterBy::Nothing;
++            filterStr = QLatin1String("virtual:groups");
          } else {
              filterType = FilterBy::Nothing;
              filterStr.clear();
-@@ -248,12 +276,15 @@ private:
+@@ -248,6 +276,7 @@ private:
      RoomlistModel *roomlistmodel;
      bool sortByImportance = true;
      bool sortByAlphabet   = false;
@@ -2720,14 +2718,6 @@ index 7dfeb70..47598f3 100644
  
      enum class FilterBy
      {
-         Tag,
-         Space,
-         DirectChats,
-+        VirtualUnread,
-+        VirtualGroups,
-         Nothing,
-     };
-     QString filterStr   = QLatin1String("");
 diff --git a/src/timeline/TimelineModel.cpp b/src/timeline/TimelineModel.cpp
 index 6233682..0fd1671 100644
 --- a/src/timeline/TimelineModel.cpp
