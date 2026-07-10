@@ -27,6 +27,12 @@ jobs:
         version: '6.5.3'
         arch: 'win64_msvc2019_64'
 
+    - name: Install OpenSSL
+      shell: cmd
+      run: |
+        choco install openssl --no-progress
+        echo OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64>> %GITHUB_ENV%
+
     - name: Setup MSVC environment
       uses: ilammy/msvc-dev-cmd@v1
 
