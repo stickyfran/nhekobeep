@@ -19,7 +19,7 @@ jobs:
       shell: bash
       run: |
         cd nheko
-        git apply ../patches/0000-unified-nhekobeep.patch
+        git apply --ignore-whitespace ../patches/0000-unified-nhekobeep.patch
 
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
