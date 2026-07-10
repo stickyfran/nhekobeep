@@ -26,7 +26,7 @@ jobs:
       with:
         version: '6.5.3'
         arch: 'win64_msvc2019_64'
-        modules: 'qtmultimedia qtsvg qtimageformats'
+        modules: 'qtmultimedia qtimageformats'
 
     - name: Install OpenSSL
       shell: cmd
