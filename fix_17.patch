@@ -1,0 +1,419 @@
+diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
+index db3bf7f1..d7f894c2 100644
+--- a/src/UserSettingsPage.cpp
++++ b/src/UserSettingsPage.cpp
+@@ -92,12 +92,15 @@ UserSettings::load(std::optional<QString> profile)
+     typingNotifications_  = settings.value("user/typing_notifications", true).toBool();
+     sortByImportance_     = settings.value("user/sort_by_unread", true).toBool();
+     sortByAlphabet_       = settings.value("user/sort_by_alphabet", false).toBool();
++    sortUnreadFirst_      = settings.value("user/sort_unread_first", false).toBool();
+     readReceipts_         = settings.value("user/read_receipts", true).toBool();
+     theme_                = settings.value("user/theme", defaultTheme_).toString();
+ 
+     font_ = settings.value("user/font_family", "").toString();
+ 
+     avatarCircles_        = settings.value("user/avatar_circles", true).toBool();
++    networkOutline_       = settings.value("user/network_outline", true).toBool();
++    beeperNetworkBadge_   = settings.value("user/beeper_network_badge", true).toBool();
+     useIdenticon_         = settings.value("user/use_identicon", true).toBool();
+     openImageExternal_    = settings.value("user/open_image_external", false).toBool();
+     openVideoExternal_    = settings.value("user/open_video_external", false).toBool();
+@@ -172,6 +175,8 @@ UserSettings::load(std::optional<QString> profile)
+     disableCertificateValidation_ =
+       settings.value("disable_certificate_validation", false).toBool();
+ 
++    loadCustomLabels();
++
+     applyTheme();
+ 
+     if (profile)
+@@ -432,6 +437,16 @@ UserSettings::setSortByAlphabet(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setSortUnreadFirst(bool state)
++{
++    if (state == sortUnreadFirst_)
++        return;
++    sortUnreadFirst_ = state;
++    emit sortUnreadFirstChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setButtonsInTimeline(bool state)
+ {
+@@ -500,6 +515,26 @@ UserSettings::setAvatarCircles(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setNetworkOutline(bool state)
++{
++    if (state == networkOutline_)
++        return;
++    networkOutline_ = state;
++    emit networkOutlineChanged(state);
++    save();
++}
++
++void
++UserSettings::setBeeperNetworkBadge(bool state)
++{
++    if (state == beeperNetworkBadge_)
++        return;
++    beeperNetworkBadge_ = state;
++    emit beeperNetworkBadgeChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setDecryptSidebar(bool state)
+ {
+@@ -930,6 +965,8 @@ UserSettings::save()
+     settings.endGroup(); // timeline
+ 
+     settings.setValue("avatar_circles", avatarCircles_);
++    settings.setValue("network_outline", networkOutline_);
++    settings.setValue("beeper_network_badge", beeperNetworkBadge_);
+     settings.setValue("decrypt_sidebar", decryptSidebar_);
+     settings.setValue("decrypt_notifications", decryptNotifications_);
+     settings.setValue("space_notifications", spaceNotifications_);
+@@ -1013,6 +1050,228 @@ UserSettings::save()
+     settings.sync();
+ }
+ 
++// -----------------------------------------------------------------------
++// Beeper Custom Label persistence
++// -----------------------------------------------------------------------
++void
++UserSettings::loadCustomLabels()
++{
++    customLabels_.clear();
++    auto raw = settings.value("user/beeper_custom_labels").toList();
++    for (const auto &item : std::as_const(raw)) {
++        auto map = item.toMap();
++        CustomLabel label;
++        label.tag         = map.value("tag").toString();
++        label.displayName = map.value("displayName").toString();
++        label.iconKey     = map.value("iconKey").toString();
++        if (!label.tag.isEmpty() && !label.displayName.isEmpty())
++            customLabels_.append(QVariant::fromValue(label));
++    }
++}
++
++void
++UserSettings::addCustomLabel(const QString &tag,
++                              const QString &displayName,
++                              const QString &iconKey)
++{
++    for (int i = 0; i < customLabels_.size(); ++i) {
++        auto label = customLabels_[i].value<CustomLabel>();
++        if (label.tag == tag) {
++            customLabels_[i] = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    customLabels_.append(QVariant::fromValue(CustomLabel{tag, displayName, iconKey}));
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::removeCustomLabel(const QString &tag)
++{
++    customLabels_.erase(std::remove_if(customLabels_.begin(),
++                                        customLabels_.end(),
++                                        [&tag](const QVariant &v) {
++                                            return v.value<CustomLabel>().tag == tag;
++                                        }),
++                         customLabels_.end());
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::updateCustomLabel(const QString &tag,
++                                 const QString &displayName,
++                                 const QString &iconKey)
++{
++    for (auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == tag) {
++            v = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    addCustomLabel(tag, displayName, iconKey);
++}
++
++QString
++UserSettings::customLabelDisplayName(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.displayName;
++    }
++    return {};
++}
++
++QString
++UserSettings::customLabelIconKey(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.iconKey;
++    }
++    return {};
++}
++
++void
++UserSettings::saveCustomLabels()
++{
++    QVariantList raw;
++    raw.reserve(customLabels_.size());
++    for (const auto &v : std::as_const(customLabels_)) {
++        auto label = v.value<CustomLabel>();
++        QVariantMap map;
++        map["tag"]         = label.tag;
++        map["displayName"] = label.displayName;
++        map["iconKey"]     = label.iconKey;
++        raw.append(map);
++    }
++    settings.setValue("user/beeper_custom_labels", raw);
++}
++
++// -----------------------------------------------------------------------
++// CustomLabelListModel
++// -----------------------------------------------------------------------
++CustomLabelListModel::CustomLabelListModel(QObject *parent)
++  : QAbstractListModel(parent)
++{
++    instance_ = this;
++    connect(UserSettings::instance().get(),
++            &UserSettings::customLabelsChanged,
++            this,
++            &CustomLabelListModel::refreshFromSettings);
++    refreshFromSettings();
++}
++
++CustomLabelListModel *
++CustomLabelListModel::create(QQmlEngine *, QJSEngine *)
++{
++    Q_ASSERT(instance_);
++    QJSEngine::setObjectOwnership(instance_, QJSEngine::CppOwnership);
++    return instance_;
++}
++
++QHash<int, QByteArray>
++CustomLabelListModel::roleNames() const
++{
++    return {
++      {TagRole, "tag"},
++      {DisplayNameRole, "displayName"},
++      {IconKeyRole, "iconKey"},
++    };
++}
++
++QVariant
++CustomLabelListModel::data(const QModelIndex &index, int role) const
++{
++    if (index.row() < 0 || index.row() >= labels_.size())
++        return {};
++
++    const auto &label = labels_.at(index.row());
++    switch (role) {
++    case TagRole:
++        return label.tag;
++    case DisplayNameRole:
++        return label.displayName;
++    case IconKeyRole:
++        return label.iconKey;
++    default:
++        return {};
++    }
++}
++
++void
++CustomLabelListModel::addLabel(const QString &tag,
++                                const QString &displayName,
++                                const QString &iconKey)
++{
++    UserSettings::instance()->addCustomLabel(tag, displayName, iconKey);
++}
++
++void
++CustomLabelListModel::removeLabel(int row)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->removeCustomLabel(labels_.at(row).tag);
++}
++
++void
++CustomLabelListModel::updateLabel(int row,
++                                   const QString &tag,
++                                   const QString &displayName,
++                                   const QString &iconKey)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->updateCustomLabel(tag, displayName, iconKey);
++}
++
++QStringList
++CustomLabelListModel::availableIcons() const
++{
++    return {
++      QStringLiteral(":/icons/icons/ui/tag.svg"),
++      QStringLiteral(":/icons/icons/ui/star.svg"),
++      QStringLiteral(":/icons/icons/ui/bookmark.svg"),
++      QStringLiteral(":/icons/icons/ui/chat.svg"),
++      QStringLiteral(":/icons/icons/ui/clock.svg"),
++      QStringLiteral(":/icons/icons/ui/building-shop.svg"),
++      QStringLiteral(":/icons/icons/ui/people.svg"),
++      QStringLiteral(":/icons/icons/ui/world.svg"),
++      QStringLiteral(":/icons/icons/ui/alert.svg"),
++      QStringLiteral(":/icons/icons/ui/checkmark.svg"),
++    };
++}
++
++QString
++CustomLabelListModel::displayNameForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelDisplayName(tag);
++}
++
++QString
++CustomLabelListModel::iconKeyForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelIconKey(tag);
++}
++
++void
++CustomLabelListModel::refreshFromSettings()
++{
++    beginResetModel();
++    labels_.clear();
++    auto custom = UserSettings::instance()->customLabels();
++    for (const auto &v : std::as_const(custom))
++        labels_.append(v.value<CustomLabel>());
++    endResetModel();
++}
++
+ QHash<int, QByteArray>
+ UserSettingsModel::roleNames() const
+ {
+@@ -1196,6 +1455,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return tr("Periodically update community routing information");
+         case ExpireEvents:
+             return tr("Periodically delete expired events");
++        case PatchesSection:
++            return tr("PARCHES");
++        case NetworkOutline:
++            return tr("Network outline on avatars");
++        case BeeperNetworkBadge:
++            return tr("Beeper network badge");
++        case ForceCacheSync:
++            return tr("Force Cache Sync");
++        case ForceReinit:
++            return tr("Force Full Re-Init");
++        case ManageCustomLabels:
++            return tr("Manage Custom Labels");
+         }
+     } else if (role == Value) {
+         switch (index.row()) {
+@@ -1342,6 +1613,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return i->updateSpaceVias();
+         case ExpireEvents:
+             return i->expireEvents();
++        case NetworkOutline:
++            return i->networkOutline();
++        case BeeperNetworkBadge:
++            return i->beeperNetworkBadge();
++        case ForceCacheSync:
++        case ForceReinit:
++        case ManageCustomLabels:
++            return {};
+         }
+     } else if (role == Description) {
+         switch (index.row()) {
+@@ -1437,6 +1716,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+         case AvatarCircles:
+             return tr(
+               "Change the appearance of user avatars in chats.\nOFF - square, ON - circle.");
++        case BeeperNetworkBadge:
++            return tr("Show a badge with the network name (e.g. WhatsApp) next to the room name.");
++        case NetworkOutline:
++            return tr("Show a colored outline on avatars based on the user's bridge network (e.g. WhatsApp green, Telegram blue).");
+         case UseIdenticon:
+             return tr("Display an identicon instead of a letter when no avatar is set.");
+         case OpenImageExternal:
+@@ -1543,6 +1826,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+                       "to have one client running this regularly.");
+         case IgnoredUsers:
+             return tr("Manage your ignored users.");
++        case ForceCacheSync:
++            return tr("If contacts or rooms appear with incorrect names or avatars, use this to force a refresh of their profile data.");
++        case ForceReinit:
++            return tr("Warning: This will delete all cached room data and rebuild from scratch. Use only if chat names or avatars are incorrect.");
++        case ManageCustomLabels:
++            return tr("Define custom names and icons for tags.");
+         }
+     } else if (role == Type) {
+         switch (index.row()) {
+@@ -1633,6 +1922,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return ConfigureHiddenEvents;
+         case IgnoredUsers:
+             return ManageIgnoredUsers;
++        case PatchesSection:
++            return SectionTitle;
++        case NetworkOutline:
++            return Toggle;
++        case BeeperNetworkBadge:
++            return Toggle;
++        case ForceCacheSync:
++            return ForceCacheSyncAction;
++        case ForceReinit:
++            return ForceReinitAction;
++        case ManageCustomLabels:
++            return ManageCustomLabelsAction;
+         }
+     } else if (role == ValueLowerBound) {
+         switch (index.row()) {
+@@ -1928,6 +2229,20 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
+             } else
+                 return false;
+         }
++        case NetworkOutline: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setNetworkOutline(value.toBool());
++                return true;
++            } else
++                return false;
++        }
++        case BeeperNetworkBadge: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setBeeperNetworkBadge(value.toBool());
++                return true;
++            } else
++                return false;
++        }
+         case UseIdenticon: {
+             if (value.userType() == QMetaType::Bool) {
+                 i->setUseIdenticon(value.toBool());
+@@ -2283,6 +2598,9 @@ UserSettingsModel::UserSettingsModel(QObject *p)
+     connect(s.get(), &UserSettings::avatarCirclesChanged, this, [this]() {
+         emit dataChanged(index(AvatarCircles), index(AvatarCircles), {Value});
+     });
++    connect(s.get(), &UserSettings::networkOutlineChanged, this, [this]() {
++        emit dataChanged(index(NetworkOutline), index(NetworkOutline), {Value});
++    });
+     connect(s.get(), &UserSettings::useIdenticonChanged, this, [this]() {
+         emit dataChanged(index(UseIdenticon), index(UseIdenticon), {Value});
+     });

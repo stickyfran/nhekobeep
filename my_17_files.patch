@@ -1,0 +1,2576 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 81223130..500ef299 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,6 +12,13 @@ endif()
+ option(FLATPAK "Set this only if Nheko is built as a flatpak" OFF)
+ option(JSON_ImplicitConversions "Disable implicit conversions in nlohmann/json" ON)
+ 
++#
++# -- Optimisation options ------------------------------------------------------
++#
++option(NHEKO_OPTIMIZE_NATIVE
++    "Append -O3 -march=native -mtune=native to Release-build compiler flags for maximum CPU-specific performance."
++    ON)
++
+ set(
+     CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake"
+     CACHE
+@@ -49,6 +56,20 @@ endmacro()
+ 
+ project(nheko LANGUAGES CXX C)
+ 
++# ---- LTO / IPO (Link-Time / Interprocedural Optimisation) --------------------
++#
++# Enables cross-translation-unit inlining and aggressive optimisation across
++# the entire codebase *and* its statically-linked dependencies.
++#
++include(CheckIPOSupported)
++check_ipo_supported(RESULT _ipo_supported OUTPUT _ipo_error)
++if(_ipo_supported)
++    message(STATUS "IPO / LTO is supported -- enabling global interprocedural optimisation")
++    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++else()
++    message(WARNING "IPO / LTO is NOT supported by this compiler toolchain: ${_ipo_error}")
++endif()
++
+ option(USE_BUNDLED_SPDLOG "Use the bundled version of spdlog." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_FMT "Use the bundled version of {fmt}." ${HUNTER_ENABLED})
+ option(USE_BUNDLED_OLM "Use the bundled version of libolm." ${HUNTER_ENABLED})
+@@ -330,6 +351,24 @@ else(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+     message("Build type set to '${CMAKE_BUILD_TYPE}'")
+ endif(NOT (CMAKE_BUILD_TYPE OR CMAKE_CONFIGURATION_TYPES))
+ 
++# ---- Native-architecture Release flags ---------------------------------------
++#
++# When NHEKO_OPTIMIZE_NATIVE is ON (the default), inject -O3, -march=native and
++# -mtune=native into the Release (and RelWithDebInfo / MinSizeRel) flag sets.
++# These flags tell GCC (or Clang) to tune every emitted instruction for the
++# *exact* CPU on which the build is running.
++#
++if(NHEKO_OPTIMIZE_NATIVE)
++    foreach(_config IN ITEMS RELEASE RELWITHDEBINFO MINSIZEREL)
++        string(APPEND CMAKE_CXX_FLAGS_${_config} " -O3 -march=native -mtune=native")
++        string(APPEND CMAKE_C_FLAGS_${_config}   " -O3 -march=native -mtune=native")
++    endforeach()
++    message(STATUS
++        "NHEKO_OPTIMIZE_NATIVE: appended -O3 -march=native -mtune=native "
++        "to CMAKE_CXX_FLAGS_RELEASE / CMAKE_C_FLAGS_RELEASE "
++        "(and RelWithDebInfo / MinSizeRel)")
++endif()
++
+ set(SPDLOG_DEBUG_ON false)
+ 
+ # Windows doesn't handle CMAKE_BUILD_TYPE.
+@@ -463,8 +502,13 @@ set(SRC_FILES
+     src/AvatarProvider.h
+     src/BlurhashProvider.cpp
+     src/BlurhashProvider.h
++    src/BeeperBridge.h
++    src/BeeperReinitController.cpp
++    src/BeeperReinitController.h
+     src/Cache.cpp
+     src/Cache.h
++    src/CacheRefreshController.cpp
++    src/CacheRefreshController.h
+     src/CacheCryptoStructs.cpp
+     src/CacheCryptoStructs.h
+     src/CacheStructs.h
+@@ -820,6 +864,8 @@ set(QML_SOURCES
+     resources/qml/pages/RegisterPage.qml
+     resources/qml/pages/UserSettingsPage.qml
+     resources/qml/pages/WelcomePage.qml
++    resources/qml/ui/BeeperReinitOverlay.qml
++    resources/qml/ui/CacheRefreshOverlay.qml
+     resources/qml/ui/NhekoSlider.qml
+     resources/qml/ui/Ripple.qml
+     resources/qml/ui/Snackbar.qml
+diff --git a/resources/qml/Avatar.qml b/resources/qml/Avatar.qml
+index 6217d70a..2fb95c99 100644
+--- a/resources/qml/Avatar.qml
++++ b/resources/qml/Avatar.qml
+@@ -18,6 +18,11 @@ AbstractButton {
+     property alias textColor: label.color
+     property string url
+     property string userid
++    // Outline color for Beeper bridge network (e.g. WhatsApp green)
++    readonly property color networkOutlineColor: (Settings.networkOutline && avatar.userid !== "") ? Rooms.networkColorForMxid(avatar.userid) : "transparent"
++
++    // Cache the effective pixel size to avoid recalculating on every render frame
++    property int effectivePixelSize: avatar.height * Screen.devicePixelRatio
+ 
+     height: 48
+     width: 48
+@@ -41,6 +46,8 @@ AbstractButton {
+         textFormat: Text.RichText
+         verticalAlignment: Text.AlignVCenter
+         visible: img.status != Image.Ready && !Settings.useIdenticon
++
++        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+     }
+     Image {
+         id: identicon
+@@ -48,6 +55,8 @@ AbstractButton {
+         anchors.fill: parent
+         source: Settings.useIdenticon ? ("image://jdenticon/" + (avatar.userid !== "" ? avatar.userid : avatar.roomid) + "?radius=" + (Settings.avatarCircles ? 100 : 25)) : ""
+         visible: Settings.useIdenticon && img.status != Image.Ready
++
++        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+     }
+     Image {
+         id: img
+@@ -64,16 +73,22 @@ AbstractButton {
+         } else {
+             return "";
+         }
+-        sourceSize.height: if (!avatar.url.startsWith('image://MxcImage/') && avatar.url.endsWith('.svg')){
+-            return avatar.height
+-        } else {
+-            return avatar.height * Screen.devicePixelRatio
+-        }
+-        sourceSize.width: if (!avatar.url.startsWith('image://MxcImage/') && avatar.url.endsWith('.svg')){
+-            return avatar.width
+-        } else {
+-            return avatar.width * Screen.devicePixelRatio
+-        }
++        sourceSize.height: avatar.effectivePixelSize
++        sourceSize.width: avatar.effectivePixelSize
++        opacity: img.status == Image.Ready ? 1.0 : 0.0
++
++        Behavior on opacity { NumberAnimation { duration: 100 } }
++    }
++    // Beeper network color outline ring - always rendered on top of the avatar image
++    Rectangle {
++        id: networkOutline
++
++        anchors.fill: parent
++        color: "transparent"
++        enabled: false
++        radius: Settings.avatarCircles ? height / 2 : height / 8
++        border.color: avatar.networkOutlineColor
++        border.width: avatar.networkOutlineColor.a > 0 ? 2 : 0
+     }
+     Rectangle {
+         id: onlineIndicator
+@@ -86,7 +101,6 @@ AbstractButton {
+                 return Nheko.theme.unavailable;
+             case "offline":
+             default:
+-                // return "#a82353" don't show anything if offline, since it is confusing, if presence is disabled
+                 return "transparent";
+             }
+         }
+@@ -96,7 +110,7 @@ AbstractButton {
+         color: updatePresence()
+         height: avatar.height / 6
+         radius: Settings.avatarCircles ? height / 2 : height / 8
+-        visible: !!avatar.userid
++        visible: !!avatar.userid && !Settings.networkOutline
+         width: height
+ 
+         Connections {
+diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
+index 84b34a7b..d8347a82 100644
+--- a/resources/qml/MessageView.qml
++++ b/resources/qml/MessageView.qml
+@@ -19,6 +19,21 @@ Item {
+     property bool filterByNotifications: false
+     property Room roommodel: room
+ 
++    property var scrollPositions: ({})
++    property string currentRoomId: ""
++    property var hasRestored: ({})
++
++    onRoommodelChanged: {
++        if (currentRoomId !== "") {
++            scrollPositions[currentRoomId] = chat.lastScrollPos;
++        }
++        if (roommodel) {
++            currentRoomId = roommodel.roomId;
++            hasRestored[currentRoomId] = false;
++        } else {
++            currentRoomId = "";
++        }
++    }
+     // HACK: https://bugreports.qt.io/browse/QTBUG-83972, qtwayland cannot auto hide menu
+     Connections {
+         function onHideMenu() {
+@@ -45,6 +60,20 @@ Item {
+         anchors.right: parent.right
+         anchors.top: parent.top
+         parent: chat.parent
++        interactive: true
++        visible: true
++        policy: ScrollBar.AlwaysOn
++
++        contentItem: Rectangle {
++            implicitWidth: 14
++            radius: 7
++            color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
++        }
++
++        background: Rectangle {
++            implicitWidth: 14
++            color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
++        }
+     }
+     ListView {
+         id: chat
+@@ -55,10 +84,12 @@ Item {
+         ScrollBar.vertical: scrollbar
+         anchors.fill: parent
+         anchors.rightMargin: scrollbar.interactive ? scrollbar.width : 0
+-        // reuseItems still has a few bugs, see https://bugreports.qt.io/browse/QTBUG-95105 https://bugreports.qt.io/browse/QTBUG-95107
+-        //onModelChanged: if (room) room.sendReset()
+-        //reuseItems: true
++        // reuseItems bugs fixed in Qt 6.6
++
++        reuseItems: true
+         boundsBehavior: Flickable.StopAtBounds
++        maximumFlickVelocity: 6000
++        flickDeceleration: 3000
+         displayMarginBeginning: height / 4
+         displayMarginEnd: height / 4
+         model: (filteredTimeline.filterByThread || filteredTimeline.filterByContent || filteredTimeline.filterByNotifications) ? filteredTimeline : room
+@@ -73,7 +104,10 @@ Item {
+             lastScrollPos = (contentY+height);
+         }
+         onMovementEnded: updateLastScroll()
+-        onModelChanged: updateLastScroll()
++        onModelChanged: {
++            if (room) room.sendReset()
++            updateLastScroll()
++        }
+         onHeightChanged: contentY = (lastScrollPos-height)
+ 
+         Component {
+@@ -140,6 +174,12 @@ Item {
+             // Mark timeline as read
+             if (atYEnd && room)
+                 model.currentIndex = 0;
++                
++            if (count > 0 && currentRoomId !== "" && scrollPositions[currentRoomId] !== undefined && !hasRestored[currentRoomId]) {
++                chat.contentY = scrollPositions[currentRoomId] - chat.height;
++                chat.updateLastScroll();
++                hasRestored[currentRoomId] = true;
++            }
+         }
+ 
+         TimelineFilter {
+@@ -689,6 +729,7 @@ Item {
+             }
+         }
+     }
++
+     RoundButton {
+         id: toEndButton
+ 
+@@ -761,4 +802,33 @@ Item {
+             source: "image://colorimage/:/icons/icons/ui/download.svg?" + (toEndButton.down ? palette.highlightedText : palette.buttonText)
+         }
+     }
++
++    Label {
++        id: stickyDateHeader
++        anchors.top: parent.top
++        anchors.horizontalCenter: parent.horizontalCenter
++        anchors.topMargin: Nheko.paddingMedium
++        z: 10
++        visible: text !== "" && !chat.atYEnd
++        
++        // Find the visible item nearest to the top edge (contentY + height in BottomToTop layout)
++        property var topItem: {
++            // Re-evaluate when scroll changes
++            var cy = chat.contentY
++            // We probe slightly below the top edge to find an item
++            return chat.itemAt(chat.width / 2, cy + chat.height - 40)
++        }
++
++        text: topItem && topItem.timestamp ? room.formatDateSeparator(topItem.timestamp) : ""
++
++        padding: Nheko.paddingSmall
++        background: Rectangle {
++            color: palette.window
++            radius: Nheko.paddingSmall
++            border.color: Nheko.theme.separator
++            border.width: 1
++            opacity: 0.95
++        }
++        font.bold: true
++    }
+ }
+diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
+index db4f2cb7..b580c063 100644
+--- a/resources/qml/RoomList.qml
++++ b/resources/qml/RoomList.qml
+@@ -227,6 +227,20 @@ Page {
+                 }
+                 Item {
+                 }
++                ImageButton {
++                    id: unreadSortToggle
++
++                    Layout.alignment: Qt.AlignVCenter
++                    Layout.preferredHeight: fontMetrics.lineSpacing * 1.5
++                    Layout.preferredWidth: fontMetrics.lineSpacing * 1.5
++                    ToolTip.delay: Nheko.tooltipDelay
++                    ToolTip.text: Settings.sortUnreadFirst ? qsTr("Unread first: ON") : qsTr("Unread first: OFF")
++                    ToolTip.visible: hovered
++                    image: Settings.sortUnreadFirst ? ":/icons/icons/ui/sort-down.svg" : ":/icons/icons/ui/sort.svg"
++                    visible: !collapsed
++
++                    onClicked: Settings.sortUnreadFirst = !Settings.sortUnreadFirst
++                }
+                 ImageButton {
+                     id: logoutButton
+ 
+@@ -442,11 +456,29 @@ Page {
+         model: Rooms
+         boundsBehavior: Flickable.StopAtBounds
+ 
+-        //reuseItems: true
++        reuseItems: true
++        maximumFlickVelocity: 6000
++        cacheBuffer: Math.ceil(avatarSize * 20)
++        displayMarginBeginning: height / 2
++        displayMarginEnd: height / 2
+         ScrollBar.vertical: ScrollBar {
+             id: scrollbar
+ 
+-            parent: !collapsed && Settings.scrollbarsInRoomlist ? roomlist : null
++            parent: roomlist
++            interactive: true
++            visible: true
++            policy: ScrollBar.AlwaysOn
++
++            contentItem: Rectangle {
++                implicitWidth: 14
++                radius: 7
++                color: scrollbar.pressed ? Nheko.theme.separator : Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.6)
++            }
++
++            background: Rectangle {
++                implicitWidth: 14
++                color: Qt.rgba(Nheko.theme.separator.r, Nheko.theme.separator.g, Nheko.theme.separator.b, 0.12)
++            }
+         }
+         delegate: ItemDelegate {
+             id: roomItem
+@@ -467,6 +499,9 @@ Page {
+             required property string roomId
+             required property string roomName
+             required property var tags
++            required property string beeperNetwork
++            required property color beeperNetworkColor
++            required property string beeperNetworkOtherUserId
+             required property string time
+             property color unimportantText: palette.buttonText
+ 
+@@ -563,7 +598,7 @@ Page {
+                     enabled: false
+                     roomid: roomId
+                     url: avatarUrl.replace("mxc://", "image://MxcImage/")
+-                    userid: isDirect ? directChatOtherUserId : ""
++                    userid: isDirect ? (directChatOtherUserId || beeperNetworkOtherUserId) : beeperNetworkOtherUserId
+                     Layout.preferredWidth: avatarSize
+                     Layout.preferredHeight: avatarSize
+ 
+@@ -602,10 +637,47 @@ Page {
+ 
+                             anchors.left: parent.left
+                             color: roomItem.importantText
+-                            elideWidth: parent.width - (timestamp.visible ? timestamp.implicitWidth : 0) - (spaceNotificationBubble.visible ? spaceNotificationBubble.implicitWidth : 0)
++                            elideWidth: parent.width - (timestamp.visible ? timestamp.implicitWidth : 0) - (beeperBadge.visible ? beeperBadge.width + Nheko.paddingSmall : 0) - (spaceNotificationBubble.visible ? spaceNotificationBubble.implicitWidth : 0)
+                             fullText: TimelineManager.htmlEscape(roomName)
+                             textFormat: Text.RichText
+                         }
++                        // Beeper bridge network badge with brand color
++                        Rectangle {
++                            id: beeperBadge
++
++                            readonly property color brandColor: beeperNetworkColor.a > 0 ? beeperNetworkColor : palette.highlight
++                            readonly property bool isLightColor: {
++                                if (beeperNetworkColor.a === 0)
++                                    return false;
++                                var c = beeperNetworkColor;
++                                var r = c.r;
++                                var g = c.g;
++                                var b = c.b;
++                                var luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
++                                return luminance > 0.6;
++                            }
++
++                            anchors.left: titleText.right
++                            anchors.leftMargin: Nheko.paddingSmall
++                            anchors.verticalCenter: titleText.verticalCenter
++                            color: beeperNetworkColor.a > 0 ? Qt.lighter(brandColor, 1.4) : Qt.alpha(palette.highlight, 0.15)
++                            border.color: beeperNetworkColor.a > 0 ? brandColor : Qt.alpha(palette.highlight, 0.4)
++                            border.width: 1
++                            height: beeperLabel.implicitHeight + 4
++                            radius: 3
++                            visible: beeperNetwork !== "" && Settings.beeperNetworkBadge
++                            width: beeperLabel.implicitWidth + 8
++
++                            Text {
++                                id: beeperLabel
++
++                                anchors.centerIn: parent
++                                color: beeperBadge.isLightColor ? "#000000" : "#ffffff"
++                                font.bold: true
++                                font.pixelSize: fontMetrics.font.pixelSize * 0.65
++                                text: beeperNetwork
++                            }
++                        }
+                         Label {
+                             id: timestamp
+ 
+@@ -793,6 +865,11 @@ Page {
+ 
+                 onTriggered: Rooms.copyLink(roomContextMenu.roomid)
+             }
++            MenuItem {
++                text: qsTr("Download chat history...")
++
++                onTriggered: TimelineManager.downloadHistoryForRoom(roomContextMenu.roomid)
++            }
+             Menu {
+                 id: tagsMenu
+ 
+@@ -825,12 +902,65 @@ Page {
+                     onObjectAdded: (index, object) => tagsMenu.insertItem(index, object)
+                     onObjectRemoved: (index, object) => tagsMenu.removeItem(object)
+                 }
++
++                MenuSeparator {
++                    visible: CustomLabelListModel.rowCount() > 0
++                }
++
++                Instantiator {
++                    model: CustomLabelListModel
++
++                    delegate: MenuItem {
++                        property string t: model.tag
++
++                        checkable: true
++                        checked: roomContextMenu.tags !== undefined && roomContextMenu.tags.includes(t)
++                        text: model.displayName
++
++                        onTriggered: Rooms.toggleTag(roomContextMenu.roomid, t, checked)
++                    }
++
++                    onObjectAdded: (index, object) => {
++                        var insertIdx = index + tagsMenu.count - 1;
++                        tagsMenu.insertItem(insertIdx, object);
++                    }
++                    onObjectRemoved: (index, object) => tagsMenu.removeItem(object)
++                }
++
+                 MenuItem {
+                     text: qsTr("Create new tag...")
+ 
+                     onTriggered: newTag.show()
+                 }
+             }
++            Menu {
++                id: addToSpaceMenu
++
++                title: qsTr("Add to Space...")
++
++                Instantiator {
++                    model: Communities.allSpacesForRoom(roomContextMenu.roomid)
++
++                    delegate: MenuItem {
++                        required property var modelData
++
++                        checkable: true
++                        checked: modelData.childValid
++                        text: modelData.name
++                        enabled: modelData.canEditChild
++
++                        onTriggered: {
++                            if (checked)
++                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, true, true, false);
++                            else
++                                Communities.updateSpaceStatus(modelData.roomid, roomContextMenu.roomid, false, false, false);
++                        }
++                    }
++
++                    onObjectAdded: (index, object) => addToSpaceMenu.insertItem(index, object)
++                    onObjectRemoved: (index, object) => addToSpaceMenu.removeItem(object)
++                }
++            }
+             SpaceMenu {
+                 id: rootSpaceMenu
+ 
+diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/UserSettingsPage.qml
+index 8f51e668..90dbc84b 100644
+--- a/resources/qml/pages/UserSettingsPage.qml
++++ b/resources/qml/pages/UserSettingsPage.qml
+@@ -252,6 +252,39 @@ Rectangle {
+                             }
+                         }
+ 
++                        // --- Patch action buttons ---
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceCacheSyncAction
++                            Button {
++                                text: qsTr("FORCE SYNC")
++                                enabled: !CacheRefreshController.inProgress
++                                onClicked: {
++                                    CacheRefreshController.startCacheRefresh();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ForceReinitAction
++                            Button {
++                                text: qsTr("RE-INITIALIZE")
++                                onClicked: {
++                                    confirmReinitDialog.open();
++                                }
++                            }
++                        }
++                        DelegateChoice {
++                            roleValue: UserSettingsModel.ManageCustomLabelsAction
++                            Button {
++                                text: qsTr("MANAGE")
++                                onClicked: {
++                                    var dialog = customLabelsDialogComponent.createObject();
++                                    dialog.show();
++                                    destroyOnClose(dialog);
++                                }
++                            }
++                        }
++
++
+                         DelegateChoice {
+                             Text {
+                                 text: model.value
+@@ -263,6 +296,175 @@ Rectangle {
+         }
+     }
+ 
++    // --- Confirmation dialog for Force Re-Init (referenced from DelegateChooser) ---
++    Dialog {
++        id: confirmReinitDialog
++        title: qsTr("Confirm Full Re-Init")
++        standardButtons: Dialog.Ok | Dialog.Cancel
++        modal: true
++        anchors.centerIn: parent
++
++        ColumnLayout {
++            spacing: Nheko.paddingMedium
++            width: parent ? parent.width : 400
++
++            Label {
++                text: qsTr("Are you sure you want to perform a full Beeper re-initialization?")
++                font.bold: true
++                color: Nheko.theme.error
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++
++            Label {
++                text: qsTr("This will:\n\u2022 Delete all cached room data\n\u2022 Re-download all chat history\n\u2022 Re-fetch all avatars\n\nThe process may take several minutes.")
++                wrapMode: Text.WordWrap
++                Layout.fillWidth: true
++            }
++        }
++
++        onAccepted: {
++            BeeperReinitController.startBeeperReinit();
++        }
++    }
++
++    // --- Custom Labels management dialog (referenced from DelegateChooser) ---
++    Component {
++        id: customLabelsDialogComponent
++
++        Dialog {
++            id: customLabelsDialog
++            title: qsTr("Manage Custom Labels")
++            standardButtons: Dialog.Close
++            modal: true
++            anchors.centerIn: Overlay.overlay ? Overlay.overlay : parent
++            width: Math.min(500, parent ? parent.width * 0.9 : 500)
++
++            ColumnLayout {
++                spacing: Nheko.paddingMedium
++                width: parent ? parent.width - Nheko.paddingLarge * 2 : 460
++
++                Label {
++                    text: qsTr("Define custom names and icons for tags.")
++                    wrapMode: Text.WordWrap
++                    Layout.fillWidth: true
++                }
++
++                ColumnLayout {
++                    id: customLabelsContainer
++                    objectName: "CustomBeeperLabels"
++                    Layout.fillWidth: true
++                    spacing: Nheko.paddingSmall
++
++                    Repeater {
++                        model: CustomLabelListModel
++
++                        delegate: RowLayout {
++                            Layout.fillWidth: true
++                            spacing: Nheko.paddingSmall
++
++                            TextField {
++                                Layout.fillWidth: true
++                                text: model.displayName
++                                placeholderText: qsTr("Display Name")
++                                onEditingFinished: CustomLabelListModel.updateLabel(
++                                    index, model.tag, text, model.iconKey)
++                            }
++
++                            ComboBox {
++                                id: iconCombo
++                                Layout.preferredWidth: 120
++                                model: CustomLabelListModel.availableIcons()
++                                currentIndex: {
++                                    var icons = CustomLabelListModel.availableIcons();
++                                    return Math.max(0, icons.indexOf(model.iconKey));
++                                }
++                                property bool ignoreIndexChange: false
++                                onCurrentIndexChanged: {
++                                    if (ignoreIndexChange) return;
++                                    if (currentIndex >= 0) {
++                                        var icons = CustomLabelListModel.availableIcons();
++                                        CustomLabelListModel.updateLabel(
++                                            index, model.tag, model.displayName,
++                                            icons[currentIndex]);
++                                    }
++                                }
++                                Component.onCompleted: {
++                                    ignoreIndexChange = true;
++                                    var icons = CustomLabelListModel.availableIcons();
++                                    currentIndex = Math.max(0, icons.indexOf(model.iconKey));
++                                    ignoreIndexChange = false;
++                                }
++                            }
++
++                            Label {
++                                text: model.tag
++                                color: palette.buttonText
++                                font.pixelSize: fontMetrics.font.pixelSize * 0.85
++                                Layout.preferredWidth: 140
++                                elide: Text.ElideRight
++                            }
++
++                            ImageButton {
++                                Layout.preferredWidth: 22
++                                Layout.preferredHeight: 22
++                                image: ":/icons/icons/ui/delete.svg"
++                                ToolTip.text: qsTr("Remove label")
++                                ToolTip.visible: hovered
++                                hoverEnabled: true
++                                onClicked: CustomLabelListModel.removeLabel(index)
++                            }
++                        }
++                    }
++
++                    Button {
++                        text: qsTr("Add Custom Label")
++                        Layout.alignment: Qt.AlignLeft
++                        onClicked: addCustomLabelDialog.open()
++                    }
++                }
++            }
++
++            Dialog {
++                id: addCustomLabelDialog
++                title: qsTr("Add Custom Label")
++                standardButtons: Dialog.Ok | Dialog.Cancel
++                modal: true
++                anchors.centerIn: parent
++
++                ColumnLayout {
++                    spacing: Nheko.paddingMedium
++                    Label { text: qsTr("Tag:") }
++                    TextField {
++                        id: newTagField
++                        placeholderText: "u.mylabel"
++                        Layout.fillWidth: true
++                    }
++                    Label { text: qsTr("Display Name:") }
++                    TextField {
++                        id: newNameField
++                        placeholderText: qsTr("My Label")
++                        Layout.fillWidth: true
++                    }
++                }
++
++                onAccepted: {
++                    var tag = newTagField.text.trim();
++                    var name = newNameField.text.trim();
++                    if (tag && name) {
++                        if (tag.indexOf("u.") !== 0)
++                            tag = "u." + tag;
++                        CustomLabelListModel.addLabel(
++                            tag, name,
++                            ":/icons/icons/ui/tag.svg");
++                    }
++                    newTagField.text = "";
++                    newNameField.text = "";
++                }
++            }
++        }
++    }
++
+     ImageButton {
+         id: backButton
+         anchors.top: parent.top
+@@ -275,5 +477,15 @@ Rectangle {
+         ToolTip.text: qsTr("Back")
+         onClicked: mainWindow.pop()
+     }
++
++    // Overlay that blocks the UI during cache refresh.
++    CacheRefreshOverlay {
++        anchors.fill: parent
++    }
++
++    // Overlay that blocks the UI during Beeper re-initialization.
++    BeeperReinitOverlay {
++        anchors.fill: parent
++    }
+ }
+ 
+diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
+index 4608aca4..e02f59a5 100644
+--- a/src/AvatarProvider.cpp
++++ b/src/AvatarProvider.cpp
+@@ -68,6 +68,27 @@ resolve(const QString &room_id,
+ 
+     resolve(std::move(avatarUrl), size, receiver, callback);
+ }
++
++// Dummy receiver used for pre-warming — lives long enough for async downloads
++static QObject *
++prewarmReceiver()
++{
++    static QObject *r = new QObject;
++    return r;
++}
++
++void
++prewarm(const QVector<QPair<QString, int>> &avatars)
++{
++    auto recv = prewarmReceiver();
++
++    for (const auto &[url, size] : avatars) {
++        resolve(url, size, recv, [](QPixmap) {
++            // Result discarded — only the cache population matters.
++            // The QPixmapCache insert happens inside resolve().
++        });
++    }
++}
+ }
+ 
+ #include "moc_AvatarProvider.cpp"
+diff --git a/src/AvatarProvider.h b/src/AvatarProvider.h
+index b73b1ad6..187c5404 100644
+--- a/src/AvatarProvider.h
++++ b/src/AvatarProvider.h
+@@ -28,4 +28,11 @@ resolve(const QString &room_id,
+         int size,
+         QObject *receiver,
+         AvatarCallback cb);
++
++// Pre-warm the avatar cache for a list of (avatarUrl, size) pairs.
++// This triggers asynchronous downloads into both the disk cache and
++// the QPixmapCache (VRAM), so avatars appear instantly when scrolled to.
++// The download responses are discarded — only the cache population matters.
++void
++prewarm(const QVector<QPair<QString, int>> &avatars);
+ }
+diff --git a/src/Cache.cpp b/src/Cache.cpp
+index 0f621df7..a4a61413 100644
+--- a/src/Cache.cpp
++++ b/src/Cache.cpp
+@@ -282,6 +282,36 @@ Cache::getMembersDb(lmdb::txn &txn, const std::string &room_id)
+     return lmdb::dbi::open(txn, std::string(room_id + "/members").c_str(), MDB_CREATE);
+ }
+ 
++lmdb::env &
++Cache::env()
++{
++    return db->env_;
++}
++
++lmdb::dbi
++Cache::roomsDb()
++{
++    return db->rooms;
++}
++
++lmdb::dbi
++Cache::openMembersDb(lmdb::txn &txn, const std::string &room_id)
++{
++    return getMembersDb(txn, room_id);
++}
++
++lmdb::dbi
++Cache::openStatesDb(lmdb::txn &txn, const std::string &room_id)
++{
++    return getStatesDb(txn, room_id);
++}
++
++const QString &
++Cache::localUserId() const
++{
++    return localUserId_;
++}
++
+ lmdb::dbi
+ Cache::getUserKeysDb(lmdb::txn &txn)
+ {
+@@ -2566,8 +2596,12 @@ try {
+             }
+         }
+ 
++        // Only update the modification timestamp from actual message events,
++        // NOT from state events (e.g. avatar/name changes, member joins).
++        // This ensures rooms are sorted chronologically by their last real message,
++        // not by an avatar change or similar state event.
+         for (const auto &e : room.second.timeline.events) {
+-            if (!mtx::accessors::is_message(e))
++            if (!mtx::accessors::is_message(e) || mtx::accessors::is_state_event(e))
+                 continue;
+             updatedInfo.approximate_last_modification_ts = mtx::accessors::origin_server_ts_ms(e);
+         }
+@@ -3360,6 +3394,79 @@ Cache::invite(std::string_view roomid)
+     return result;
+ }
+ 
++namespace {
++//
++// Beeper "fake DM" detection helpers.
++//
++// Beeper bridges (Instagram, WhatsApp, etc.) model 1:1 chats as 3-member
++// rooms: <local user, real contact, @<service>bot:beeper.<tld>>. These
++// helpers identify the bridge bot and the real counterpart so we can
++// render the room as a native Matrix DM instead of a tiny group.
++//
++bool
++isBeeperBridgeBotMxid(std::string_view mxid)
++{
++    if (mxid.size() < 4 || mxid.front() != '@')
++        return false;
++
++    const auto colon = mxid.find(':');
++    if (colon == std::string_view::npos || colon + 1 >= mxid.size())
++        return false;
++
++    const auto localpart = mxid.substr(1, colon - 1);
++    const auto server    = mxid.substr(colon + 1);
++
++    // server must start with "beeper." (e.g. beeper.local, beeper.com)
++    if (server.size() < 7 || server.compare(0, 7, "beeper.") != 0)
++        return false;
++
++    // localpart must contain "bot" (case-insensitive)
++    auto toLower = [](char c) -> char {
++        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
++    };
++    for (size_t i = 0; i + 3 <= localpart.size(); ++i) {
++        if (toLower(localpart[i]) == 'b' && toLower(localpart[i + 1]) == 'o' &&
++            toLower(localpart[i + 2]) == 't')
++            return true;
++    }
++    return false;
++}
++
++//
++// Given a fully-populated <mxid -> MemberInfo> map (containing exactly
++// the three members of a candidate Beeper room), returns a pointer to
++// the real counterpart's MemberInfo when the room is a Beeper "fake DM".
++// Returns nullptr otherwise.
++//
++const MemberInfo *
++beeperFakeDmCounterpart(const std::map<std::string, MemberInfo> &members,
++                        const std::string &localUserId)
++{
++    if (members.size() != 3)
++        return nullptr;
++
++    bool hasLocal              = false;
++    bool hasBot                = false;
++    const MemberInfo *contact  = nullptr;
++
++    for (const auto &[mxid, info] : members) {
++        if (mxid == localUserId) {
++            hasLocal = true;
++        } else if (isBeeperBridgeBotMxid(mxid)) {
++            hasBot = true;
++        } else {
++            // Only accept a single non-local, non-bot member as the
++            // counterpart; otherwise this isn't a 1:1-shaped room.
++            if (contact)
++                return nullptr;
++            contact = &info;
++        }
++    }
++
++    return (hasLocal && hasBot) ? contact : nullptr;
++}
++} // namespace
++
+ QString
+ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+ {
+@@ -3382,6 +3489,28 @@ Cache::getRoomAvatarUrl(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersd
+         }
+     }
+ 
++    // Beeper "fake DM": prefer the real contact's individual avatar over
++    // the (usually empty) group avatar Nheko would otherwise compose.
++    if (membersdb.size(txn) == 3) {
++        std::map<std::string, MemberInfo> members;
++        auto bcursor = lmdb::cursor::open(txn, membersdb);
++        std::string_view buser_id, bmember_data;
++        while (bcursor.get(buser_id, bmember_data, MDB_NEXT)) {
++            try {
++                members.emplace(buser_id,
++                                nlohmann::json::parse(bmember_data).get<MemberInfo>());
++            } catch (const nlohmann::json::exception &e) {
++                nhlog::db()->warn("failed to parse member info: {}", e.what());
++            }
++        }
++        bcursor.close();
++
++        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
++            if (!cp->avatar_url.empty())
++                return QString::fromStdString(cp->avatar_url);
++        }
++    }
++
+     // We don't use an avatar for group chats.
+     if (membersdb.size(txn) > 2)
+         return QString();
+@@ -3473,6 +3602,17 @@ Cache::getRoomName(lmdb::txn &txn, lmdb::dbi &statesdb, lmdb::dbi &membersdb)
+     if (total == 1 && !members.empty())
+         return QString::fromStdString(members.begin()->second.name);
+ 
++    // Beeper "fake DM": render as a 1:1 with the real contact's name only,
++    // hiding the bridge bot ("@<service>bot:beeper.<tld>"). This avoids
++    // localised strings like "Juan Pérez y Instagram Bridge bot" leaking
++    // into the room list.
++    if (total == 3) {
++        if (const auto *cp = beeperFakeDmCounterpart(members, localUserId_.toStdString())) {
++            if (!cp->name.empty())
++                return QString::fromStdString(cp->name);
++        }
++    }
++
+     auto first_member = [&members, this]() {
+         for (const auto &m : members) {
+             if (m.first != localUserId_.toStdString())
+diff --git a/src/Cache_p.h b/src/Cache_p.h
+index 89fdd843..8f01e921 100644
+--- a/src/Cache_p.h
++++ b/src/Cache_p.h
+@@ -9,6 +9,8 @@
+ #include <QDateTime>
+ #include <QString>
+ 
++#include <lmdb++.h>
++
+ #include <mtx/events/collections.hpp>
+ #include <mtx/responses/notifications.hpp>
+ #include <mtx/responses/sync.hpp>
+@@ -36,6 +38,22 @@ class Cache final : public QObject
+ 
+ public:
+     Cache(const QString &userId, QObject *parent = nullptr);
++
++    //! Allow CacheRefreshController to perform surgical LMDB updates.
++    friend class CacheRefreshController;
++    //! Allow BeeperReinitWorker to reset the next_batch token and drop databases.
++    friend class BeeperReinitWorker;
++
++    //! Return the underlying LMDB environment for direct access.
++    lmdb::env &env();
++    //! Return the rooms database handle.
++    lmdb::dbi roomsDb();
++    //! Open the members database for a given room.
++    lmdb::dbi openMembersDb(lmdb::txn &txn, const std::string &room_id);
++    //! Open the states database for a given room.
++    lmdb::dbi openStatesDb(lmdb::txn &txn, const std::string &room_id);
++    //! The local user's Matrix ID.
++    const QString &localUserId() const;
+     ~Cache() noexcept;
+ 
+     std::string displayName(const std::string &room_id, const std::string &user_id);
+diff --git a/src/ChatPage.h b/src/ChatPage.h
+index d89457de..6a5f9d9d 100644
+--- a/src/ChatPage.h
++++ b/src/ChatPage.h
+@@ -220,4 +220,6 @@ private:
+ 
+     // Stores when our windows lost focus. Invalid when our windows have focus.
+     QDateTime lastWindowActive;
++    //! Allow BeeperReinitController to pause/resume the sync loop.
++    friend class BeeperReinitController;
+ };
+diff --git a/src/MxcImageProvider.cpp b/src/MxcImageProvider.cpp
+index ba4c4dd0..3fd37ea2 100644
+--- a/src/MxcImageProvider.cpp
++++ b/src/MxcImageProvider.cpp
+@@ -195,13 +195,13 @@ MxcImageProvider::download(const QString &id,
+         // Protect against synapse not following the spec:
+         // https://github.com/matrix-org/synapse/issues/5302
+         && requestedSize.height() <= 600 && requestedSize.width() <= 800) {
+-        QString fileName = QStringLiteral("%1_%2x%3_%4_radius%5")
+-                             .arg(QString::fromUtf8(id.toUtf8().toBase64(
+-                               QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)))
+-                             .arg(requestedSize.width())
+-                             .arg(requestedSize.height())
+-                             .arg(crop ? "crop" : "scale")
+-                             .arg(radius);
++        QString fileName = QStringLiteral("%1_%2x%3_%4_radius%5.webp")
++                           .arg(QString::fromUtf8(id.toUtf8().toBase64(
++                             QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)))
++                           .arg(requestedSize.width())
++                           .arg(requestedSize.height())
++                           .arg(crop ? "crop" : "scale")
++                           .arg(radius);
+         QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+                              "/media_cache",
+                            fileName);
+@@ -279,7 +279,7 @@ MxcImageProvider::download(const QString &id,
+                   }
+               }
+               image.setText(QStringLiteral("mxc url"), "mxc://" + id);
+-              if (image.save(fileInfo.absoluteFilePath(), "png")) {
++              if (image.save(fileInfo.absoluteFilePath(), "webp")) {
+                   utils::markFileAsFromWeb(fileInfo.absoluteFilePath());
+                   nhlog::ui()->debug("Wrote: {}", fileInfo.absoluteFilePath().toStdString());
+               } else
+@@ -290,10 +290,10 @@ MxcImageProvider::download(const QString &id,
+           });
+     } else {
+         try {
+-            QString fileName = QStringLiteral("%1_radius%2")
+-                                 .arg(QString::fromUtf8(id.toUtf8().toBase64(
+-                                   QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)))
+-                                 .arg(radius);
++            QString fileName = QStringLiteral("%1_radius%2.webp")
++                               .arg(QString::fromUtf8(id.toUtf8().toBase64(
++                                 QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)))
++                               .arg(radius);
+ 
+             QFileInfo fileInfo(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+                                  "/media_cache",
+diff --git a/src/UserSettingsPage.cpp b/src/UserSettingsPage.cpp
+index db3bf7f1..d7f894c2 100644
+--- a/src/UserSettingsPage.cpp
++++ b/src/UserSettingsPage.cpp
+@@ -92,12 +92,15 @@ UserSettings::load(std::optional<QString> profile)
+     typingNotifications_  = settings.value("user/typing_notifications", true).toBool();
+     sortByImportance_     = settings.value("user/sort_by_unread", true).toBool();
+     sortByAlphabet_       = settings.value("user/sort_by_alphabet", false).toBool();
++    sortUnreadFirst_      = settings.value("user/sort_unread_first", false).toBool();
+     readReceipts_         = settings.value("user/read_receipts", true).toBool();
+     theme_                = settings.value("user/theme", defaultTheme_).toString();
+ 
+     font_ = settings.value("user/font_family", "").toString();
+ 
+     avatarCircles_        = settings.value("user/avatar_circles", true).toBool();
++    networkOutline_       = settings.value("user/network_outline", true).toBool();
++    beeperNetworkBadge_   = settings.value("user/beeper_network_badge", true).toBool();
+     useIdenticon_         = settings.value("user/use_identicon", true).toBool();
+     openImageExternal_    = settings.value("user/open_image_external", false).toBool();
+     openVideoExternal_    = settings.value("user/open_video_external", false).toBool();
+@@ -172,6 +175,8 @@ UserSettings::load(std::optional<QString> profile)
+     disableCertificateValidation_ =
+       settings.value("disable_certificate_validation", false).toBool();
+ 
++    loadCustomLabels();
++
+     applyTheme();
+ 
+     if (profile)
+@@ -432,6 +437,16 @@ UserSettings::setSortByAlphabet(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setSortUnreadFirst(bool state)
++{
++    if (state == sortUnreadFirst_)
++        return;
++    sortUnreadFirst_ = state;
++    emit sortUnreadFirstChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setButtonsInTimeline(bool state)
+ {
+@@ -500,6 +515,26 @@ UserSettings::setAvatarCircles(bool state)
+     save();
+ }
+ 
++void
++UserSettings::setNetworkOutline(bool state)
++{
++    if (state == networkOutline_)
++        return;
++    networkOutline_ = state;
++    emit networkOutlineChanged(state);
++    save();
++}
++
++void
++UserSettings::setBeeperNetworkBadge(bool state)
++{
++    if (state == beeperNetworkBadge_)
++        return;
++    beeperNetworkBadge_ = state;
++    emit beeperNetworkBadgeChanged(state);
++    save();
++}
++
+ void
+ UserSettings::setDecryptSidebar(bool state)
+ {
+@@ -930,6 +965,8 @@ UserSettings::save()
+     settings.endGroup(); // timeline
+ 
+     settings.setValue("avatar_circles", avatarCircles_);
++    settings.setValue("network_outline", networkOutline_);
++    settings.setValue("beeper_network_badge", beeperNetworkBadge_);
+     settings.setValue("decrypt_sidebar", decryptSidebar_);
+     settings.setValue("decrypt_notifications", decryptNotifications_);
+     settings.setValue("space_notifications", spaceNotifications_);
+@@ -1013,6 +1050,228 @@ UserSettings::save()
+     settings.sync();
+ }
+ 
++// -----------------------------------------------------------------------
++// Beeper Custom Label persistence
++// -----------------------------------------------------------------------
++void
++UserSettings::loadCustomLabels()
++{
++    customLabels_.clear();
++    auto raw = settings.value("user/beeper_custom_labels").toList();
++    for (const auto &item : std::as_const(raw)) {
++        auto map = item.toMap();
++        CustomLabel label;
++        label.tag         = map.value("tag").toString();
++        label.displayName = map.value("displayName").toString();
++        label.iconKey     = map.value("iconKey").toString();
++        if (!label.tag.isEmpty() && !label.displayName.isEmpty())
++            customLabels_.append(QVariant::fromValue(label));
++    }
++}
++
++void
++UserSettings::addCustomLabel(const QString &tag,
++                              const QString &displayName,
++                              const QString &iconKey)
++{
++    for (int i = 0; i < customLabels_.size(); ++i) {
++        auto label = customLabels_[i].value<CustomLabel>();
++        if (label.tag == tag) {
++            customLabels_[i] = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    customLabels_.append(QVariant::fromValue(CustomLabel{tag, displayName, iconKey}));
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::removeCustomLabel(const QString &tag)
++{
++    customLabels_.erase(std::remove_if(customLabels_.begin(),
++                                        customLabels_.end(),
++                                        [&tag](const QVariant &v) {
++                                            return v.value<CustomLabel>().tag == tag;
++                                        }),
++                         customLabels_.end());
++    saveCustomLabels();
++    emit customLabelsChanged();
++}
++
++void
++UserSettings::updateCustomLabel(const QString &tag,
++                                 const QString &displayName,
++                                 const QString &iconKey)
++{
++    for (auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == tag) {
++            v = QVariant::fromValue(CustomLabel{tag, displayName, iconKey});
++            saveCustomLabels();
++            emit customLabelsChanged();
++            return;
++        }
++    }
++    addCustomLabel(tag, displayName, iconKey);
++}
++
++QString
++UserSettings::customLabelDisplayName(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.displayName;
++    }
++    return {};
++}
++
++QString
++UserSettings::customLabelIconKey(const QString &rawTag) const
++{
++    for (const auto &v : customLabels_) {
++        auto label = v.value<CustomLabel>();
++        if (label.tag == rawTag)
++            return label.iconKey;
++    }
++    return {};
++}
++
++void
++UserSettings::saveCustomLabels()
++{
++    QVariantList raw;
++    raw.reserve(customLabels_.size());
++    for (const auto &v : std::as_const(customLabels_)) {
++        auto label = v.value<CustomLabel>();
++        QVariantMap map;
++        map["tag"]         = label.tag;
++        map["displayName"] = label.displayName;
++        map["iconKey"]     = label.iconKey;
++        raw.append(map);
++    }
++    settings.setValue("user/beeper_custom_labels", raw);
++}
++
++// -----------------------------------------------------------------------
++// CustomLabelListModel
++// -----------------------------------------------------------------------
++CustomLabelListModel::CustomLabelListModel(QObject *parent)
++  : QAbstractListModel(parent)
++{
++    instance_ = this;
++    connect(UserSettings::instance().get(),
++            &UserSettings::customLabelsChanged,
++            this,
++            &CustomLabelListModel::refreshFromSettings);
++    refreshFromSettings();
++}
++
++CustomLabelListModel *
++CustomLabelListModel::create(QQmlEngine *, QJSEngine *)
++{
++    Q_ASSERT(instance_);
++    QJSEngine::setObjectOwnership(instance_, QJSEngine::CppOwnership);
++    return instance_;
++}
++
++QHash<int, QByteArray>
++CustomLabelListModel::roleNames() const
++{
++    return {
++      {TagRole, "tag"},
++      {DisplayNameRole, "displayName"},
++      {IconKeyRole, "iconKey"},
++    };
++}
++
++QVariant
++CustomLabelListModel::data(const QModelIndex &index, int role) const
++{
++    if (index.row() < 0 || index.row() >= labels_.size())
++        return {};
++
++    const auto &label = labels_.at(index.row());
++    switch (role) {
++    case TagRole:
++        return label.tag;
++    case DisplayNameRole:
++        return label.displayName;
++    case IconKeyRole:
++        return label.iconKey;
++    default:
++        return {};
++    }
++}
++
++void
++CustomLabelListModel::addLabel(const QString &tag,
++                                const QString &displayName,
++                                const QString &iconKey)
++{
++    UserSettings::instance()->addCustomLabel(tag, displayName, iconKey);
++}
++
++void
++CustomLabelListModel::removeLabel(int row)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->removeCustomLabel(labels_.at(row).tag);
++}
++
++void
++CustomLabelListModel::updateLabel(int row,
++                                   const QString &tag,
++                                   const QString &displayName,
++                                   const QString &iconKey)
++{
++    if (row >= 0 && row < labels_.size())
++        UserSettings::instance()->updateCustomLabel(tag, displayName, iconKey);
++}
++
++QStringList
++CustomLabelListModel::availableIcons() const
++{
++    return {
++      QStringLiteral(":/icons/icons/ui/tag.svg"),
++      QStringLiteral(":/icons/icons/ui/star.svg"),
++      QStringLiteral(":/icons/icons/ui/bookmark.svg"),
++      QStringLiteral(":/icons/icons/ui/chat.svg"),
++      QStringLiteral(":/icons/icons/ui/clock.svg"),
++      QStringLiteral(":/icons/icons/ui/building-shop.svg"),
++      QStringLiteral(":/icons/icons/ui/people.svg"),
++      QStringLiteral(":/icons/icons/ui/world.svg"),
++      QStringLiteral(":/icons/icons/ui/alert.svg"),
++      QStringLiteral(":/icons/icons/ui/checkmark.svg"),
++    };
++}
++
++QString
++CustomLabelListModel::displayNameForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelDisplayName(tag);
++}
++
++QString
++CustomLabelListModel::iconKeyForTag(const QString &tag) const
++{
++    return UserSettings::instance()->customLabelIconKey(tag);
++}
++
++void
++CustomLabelListModel::refreshFromSettings()
++{
++    beginResetModel();
++    labels_.clear();
++    auto custom = UserSettings::instance()->customLabels();
++    for (const auto &v : std::as_const(custom))
++        labels_.append(v.value<CustomLabel>());
++    endResetModel();
++}
++
+ QHash<int, QByteArray>
+ UserSettingsModel::roleNames() const
+ {
+@@ -1196,6 +1455,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return tr("Periodically update community routing information");
+         case ExpireEvents:
+             return tr("Periodically delete expired events");
++        case PatchesSection:
++            return tr("PARCHES");
++        case NetworkOutline:
++            return tr("Network outline on avatars");
++        case BeeperNetworkBadge:
++            return tr("Beeper network badge");
++        case ForceCacheSync:
++            return tr("Force Cache Sync");
++        case ForceReinit:
++            return tr("Force Full Re-Init");
++        case ManageCustomLabels:
++            return tr("Manage Custom Labels");
+         }
+     } else if (role == Value) {
+         switch (index.row()) {
+@@ -1342,6 +1613,14 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return i->updateSpaceVias();
+         case ExpireEvents:
+             return i->expireEvents();
++        case NetworkOutline:
++            return i->networkOutline();
++        case BeeperNetworkBadge:
++            return i->beeperNetworkBadge();
++        case ForceCacheSync:
++        case ForceReinit:
++        case ManageCustomLabels:
++            return {};
+         }
+     } else if (role == Description) {
+         switch (index.row()) {
+@@ -1437,6 +1716,10 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+         case AvatarCircles:
+             return tr(
+               "Change the appearance of user avatars in chats.\nOFF - square, ON - circle.");
++        case BeeperNetworkBadge:
++            return tr("Show a badge with the network name (e.g. WhatsApp) next to the room name.");
++        case NetworkOutline:
++            return tr("Show a colored outline on avatars based on the user's bridge network (e.g. WhatsApp green, Telegram blue).");
+         case UseIdenticon:
+             return tr("Display an identicon instead of a letter when no avatar is set.");
+         case OpenImageExternal:
+@@ -1543,6 +1826,12 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+                       "to have one client running this regularly.");
+         case IgnoredUsers:
+             return tr("Manage your ignored users.");
++        case ForceCacheSync:
++            return tr("If contacts or rooms appear with incorrect names or avatars, use this to force a refresh of their profile data.");
++        case ForceReinit:
++            return tr("Warning: This will delete all cached room data and rebuild from scratch. Use only if chat names or avatars are incorrect.");
++        case ManageCustomLabels:
++            return tr("Define custom names and icons for tags.");
+         }
+     } else if (role == Type) {
+         switch (index.row()) {
+@@ -1633,6 +1922,18 @@ UserSettingsModel::data(const QModelIndex &index, int role) const
+             return ConfigureHiddenEvents;
+         case IgnoredUsers:
+             return ManageIgnoredUsers;
++        case PatchesSection:
++            return SectionTitle;
++        case NetworkOutline:
++            return Toggle;
++        case BeeperNetworkBadge:
++            return Toggle;
++        case ForceCacheSync:
++            return ForceCacheSyncAction;
++        case ForceReinit:
++            return ForceReinitAction;
++        case ManageCustomLabels:
++            return ManageCustomLabelsAction;
+         }
+     } else if (role == ValueLowerBound) {
+         switch (index.row()) {
+@@ -1928,6 +2229,20 @@ UserSettingsModel::setData(const QModelIndex &index, const QVariant &value, int
+             } else
+                 return false;
+         }
++        case NetworkOutline: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setNetworkOutline(value.toBool());
++                return true;
++            } else
++                return false;
++        }
++        case BeeperNetworkBadge: {
++            if (value.userType() == QMetaType::Bool) {
++                i->setBeeperNetworkBadge(value.toBool());
++                return true;
++            } else
++                return false;
++        }
+         case UseIdenticon: {
+             if (value.userType() == QMetaType::Bool) {
+                 i->setUseIdenticon(value.toBool());
+@@ -2283,6 +2598,9 @@ UserSettingsModel::UserSettingsModel(QObject *p)
+     connect(s.get(), &UserSettings::avatarCirclesChanged, this, [this]() {
+         emit dataChanged(index(AvatarCircles), index(AvatarCircles), {Value});
+     });
++    connect(s.get(), &UserSettings::networkOutlineChanged, this, [this]() {
++        emit dataChanged(index(NetworkOutline), index(NetworkOutline), {Value});
++    });
+     connect(s.get(), &UserSettings::useIdenticonChanged, this, [this]() {
+         emit dataChanged(index(UseIdenticon), index(UseIdenticon), {Value});
+     });
+diff --git a/src/UserSettingsPage.h b/src/UserSettingsPage.h
+index c1c198d2..c094d1ae 100644
+--- a/src/UserSettingsPage.h
++++ b/src/UserSettingsPage.h
+@@ -12,6 +12,19 @@
+ 
+ #include <optional>
+ 
++struct CustomLabel
++{
++    Q_GADGET
++    Q_PROPERTY(QString tag MEMBER tag CONSTANT)
++    Q_PROPERTY(QString displayName MEMBER displayName CONSTANT)
++    Q_PROPERTY(QString iconKey MEMBER iconKey CONSTANT)
++
++public:
++    QString tag;
++    QString displayName;
++    QString iconKey;
++};
++
+ class UserSettings final : public QObject
+ {
+     Q_OBJECT
+@@ -41,6 +54,8 @@ class UserSettings final : public QObject
+                  roomSortingChangedImportance)
+     Q_PROPERTY(bool sortByAlphabet READ sortByAlphabet WRITE setSortByAlphabet NOTIFY
+                  roomSortingChangedAlphabetical)
++    Q_PROPERTY(bool sortUnreadFirst READ sortUnreadFirst WRITE setSortUnreadFirst NOTIFY
++                 sortUnreadFirstChanged)
+     Q_PROPERTY(bool buttonsInTimeline READ buttonsInTimeline WRITE setButtonsInTimeline NOTIFY
+                  buttonInTimelineChanged)
+     Q_PROPERTY(bool readReceipts READ readReceipts WRITE setReadReceipts NOTIFY readReceiptsChanged)
+@@ -50,6 +65,10 @@ class UserSettings final : public QObject
+                  NOTIFY alertOnNotificationChanged)
+     Q_PROPERTY(
+       bool avatarCircles READ avatarCircles WRITE setAvatarCircles NOTIFY avatarCirclesChanged)
++    Q_PROPERTY(
++      bool networkOutline READ networkOutline WRITE setNetworkOutline NOTIFY networkOutlineChanged)
++    Q_PROPERTY(
++      bool beeperNetworkBadge READ beeperNetworkBadge WRITE setBeeperNetworkBadge NOTIFY beeperNetworkBadgeChanged)
+     Q_PROPERTY(
+       bool decryptSidebar READ decryptSidebar WRITE setDecryptSidebar NOTIFY decryptSidebarChanged)
+     Q_PROPERTY(bool decryptNotifications READ decryptNotifications WRITE setDecryptNotifications
+@@ -123,6 +142,9 @@ class UserSettings final : public QObject
+                  updateSpaceViasChanged)
+     Q_PROPERTY(bool expireEvents READ expireEvents WRITE setExpireEvents NOTIFY expireEventsChanged)
+ 
++    // Beeper Custom Labels
++    Q_PROPERTY(QVariantList customLabels READ customLabels NOTIFY customLabelsChanged)
++
+     UserSettings();
+ 
+ public:
+@@ -130,13 +152,9 @@ public:
+     static void initialize(std::optional<QString> profile);
+     static UserSettings *create(QQmlEngine *qmlEngine, QJSEngine *)
+     {
+-        // The instance has to exist before it is used. We cannot replace it.
+         Q_ASSERT(instance());
+-
+-        // The engine has to have the same thread affinity as the singleton.
+         Q_ASSERT(qmlEngine->thread() == instance()->thread());
+ 
+-        // There can only be one engine accessing the singleton.
+         static QJSEngine *s_engine = nullptr;
+         if (s_engine)
+             Q_ASSERT(qmlEngine == s_engine);
+@@ -198,6 +216,7 @@ public:
+     void setTypingNotifications(bool state);
+     void setSortByImportance(bool state);
+     void setSortByAlphabet(bool state);
++    void setSortUnreadFirst(bool state);
+     void setButtonsInTimeline(bool state);
+     void setTimelineMaxWidth(int state);
+     void setCommunityListWidth(int state);
+@@ -205,6 +224,8 @@ public:
+     void setDesktopNotifications(bool state);
+     void setAlertOnNotification(bool state);
+     void setAvatarCircles(bool state);
++    void setNetworkOutline(bool state);
++    void setBeeperNetworkBadge(bool state);
+     void setDecryptSidebar(bool state);
+     void setDecryptNotifications(bool state);
+     void setSpaceNotifications(bool state);
+@@ -247,6 +268,14 @@ public:
+     void setUpdateSpaceVias(bool state);
+     void setExpireEvents(bool state);
+ 
++    // Beeper Custom Labels
++    QVariantList customLabels() const { return customLabels_; }
++    void addCustomLabel(const QString &tag, const QString &displayName, const QString &iconKey);
++    void removeCustomLabel(const QString &tag);
++    void updateCustomLabel(const QString &tag, const QString &displayName, const QString &iconKey);
++    QString customLabelDisplayName(const QString &rawTag) const;
++    QString customLabelIconKey(const QString &rawTag) const;
++
+     QString theme() const { return !theme_.isEmpty() ? theme_ : defaultTheme_; }
+     bool messageHoverHighlight() const { return messageHoverHighlight_; }
+     bool enlargeEmojiOnlyMessages() const { return enlargeEmojiOnlyMessages_; }
+@@ -255,6 +284,8 @@ public:
+     bool groupView() const { return groupView_; }
+     bool scrollbarsInRoomlist() const { return scrollbarsInRoomlist_; }
+     bool avatarCircles() const { return avatarCircles_; }
++    bool networkOutline() const { return networkOutline_; }
++    bool beeperNetworkBadge() const { return beeperNetworkBadge_; }
+     bool decryptSidebar() const { return decryptSidebar_; }
+     bool decryptNotifications() const { return decryptNotifications_; }
+     bool spaceNotifications() const { return spaceNotifications_; }
+@@ -270,6 +301,7 @@ public:
+     bool typingNotifications() const { return typingNotifications_; }
+     bool sortByImportance() const { return sortByImportance_; }
+     bool sortByAlphabet() const { return sortByAlphabet_; }
++    bool sortUnreadFirst() const { return sortUnreadFirst_; }
+     bool buttonsInTimeline() const { return buttonsInTimeline_; }
+     bool mobileMode() const { return mobileMode_; }
+     bool disableSwipe() const { return disableSwipe_; }
+@@ -287,7 +319,6 @@ public:
+         if (emojiFont_ == QLatin1String("Default")) {
+             return tr("Default");
+         }
+-
+         return emojiFont_;
+     }
+     Presence presence() const { return presence_; }
+@@ -330,6 +361,7 @@ signals:
+     void scrollbarsInRoomlistChanged(bool state);
+     void roomSortingChangedImportance(bool state);
+     void roomSortingChangedAlphabetical(bool state);
++    void sortUnreadFirstChanged(bool state);
+     void themeChanged(QString state);
+     void messageHoverHighlightChanged(bool state);
+     void enlargeEmojiOnlyMessagesChanged(bool state);
+@@ -346,6 +378,8 @@ signals:
+     void desktopNotificationsChanged(bool state);
+     void alertOnNotificationChanged(bool state);
+     void avatarCirclesChanged(bool state);
++    void networkOutlineChanged(bool state);
++    void beeperNetworkBadgeChanged(bool state);
+     void decryptSidebarChanged(bool state);
+     void decryptNotificationsChanged(bool state);
+     void spaceNotificationsChanged(bool state);
+@@ -385,6 +419,7 @@ signals:
+     void useIdenticonChanged(bool state);
+     void openImageExternalChanged(bool state);
+     void openVideoExternalChanged(bool state);
++    void customLabelsChanged();
+     void hiddenPinsChanged();
+     void hiddenWidgetsChanged();
+     void recentReactionsChanged();
+@@ -393,7 +428,6 @@ signals:
+     void expireEventsChanged(bool state);
+ 
+ private:
+-    // Default to system theme if QT_QPA_PLATFORMTHEME var is set.
+     QString defaultTheme_ = QProcessEnvironment::systemEnvironment()
+                                 .value(QStringLiteral("QT_QPA_PLATFORMTHEME"), QLatin1String(""))
+                                 .isEmpty()
+@@ -414,11 +448,14 @@ private:
+     bool typingNotifications_;
+     bool sortByImportance_;
+     bool sortByAlphabet_;
++    bool sortUnreadFirst_ = false;
+     bool buttonsInTimeline_;
+     bool readReceipts_;
+     bool hasDesktopNotifications_;
+     bool hasAlertOnNotification_;
+     bool avatarCircles_;
++    bool networkOutline_ = true;
++    bool beeperNetworkBadge_ = true;
+     bool decryptSidebar_;
+     bool decryptNotifications_;
+     bool spaceNotifications_;
+@@ -462,6 +499,9 @@ private:
+     QStringList hiddenWidgets_;
+     QStringList recentReactions_;
+     QList<QStringList> collapsedSpaces_;
++    QVariantList customLabels_;
++    void loadCustomLabels();
++    void saveCustomLabels();
+     bool useIdenticon_;
+     bool openImageExternal_;
+     bool openVideoExternal_;
+@@ -564,6 +604,13 @@ class UserSettingsModel : public QAbstractListModel
+         DeviceId,
+         DeviceFingerprint,
+ 
++        PatchesSection,
++        NetworkOutline,
++        BeeperNetworkBadge,
++        ForceCacheSync,
++        ForceReinit,
++        ManageCustomLabels,
++
+         LoginInfoSection,
+         UserId,
+         Homeserver,
+@@ -571,7 +618,6 @@ class UserSettingsModel : public QAbstractListModel
+         Version,
+         Platform,
+         COUNT,
+-        // hidden for now
+         AccessToken,
+ #ifdef Q_OS_MACOS
+         ScaleFactor,
+@@ -596,6 +642,9 @@ public:
+         XSignKeysRequestDownload,
+         ConfigureHiddenEvents,
+         ManageIgnoredUsers,
++        ForceCacheSyncAction,
++        ForceReinitAction,
++        ManageCustomLabelsAction,
+     };
+     Q_ENUM(Types);
+ 
+@@ -628,3 +677,50 @@ public:
+     Q_INVOKABLE void requestCrossSigningSecrets();
+     Q_INVOKABLE void downloadCrossSigningSecrets();
+ };
++
++//! QML-accessible singleton for managing custom Beeper labels.
++class CustomLabelListModel : public QAbstractListModel
++{
++    Q_OBJECT
++    QML_ELEMENT
++    QML_SINGLETON
++
++public:
++    enum Roles
++    {
++        TagRole = Qt::UserRole,
++        DisplayNameRole,
++        IconKeyRole,
++    };
++
++    CustomLabelListModel(QObject *parent = nullptr);
++    static CustomLabelListModel *create(QQmlEngine *, QJSEngine *);
++
++    QHash<int, QByteArray> roleNames() const override;
++    int rowCount(const QModelIndex &parent = QModelIndex()) const override
++    {
++        (void)parent;
++        return labels_.size();
++    }
++    QVariant data(const QModelIndex &index, int role) const override;
++
++    Q_INVOKABLE void addLabel(const QString &tag,
++                              const QString &displayName,
++                              const QString &iconKey);
++    Q_INVOKABLE void removeLabel(int row);
++    Q_INVOKABLE void updateLabel(int row,
++                                 const QString &tag,
++                                 const QString &displayName,
++                                 const QString &iconKey);
++    Q_INVOKABLE QStringList availableIcons() const;
++    Q_INVOKABLE QString displayNameForTag(const QString &tag) const;
++    Q_INVOKABLE QString iconKeyForTag(const QString &tag) const;
++
++private slots:
++    void refreshFromSettings();
++
++private:
++    QList<CustomLabel> labels_;
++
++    inline static CustomLabelListModel *instance_ = nullptr;
++};
+diff --git a/src/main.cpp b/src/main.cpp
+index bc13cdca..bdff5bcb 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -5,6 +5,7 @@
+ #include <iostream>
+ 
+ #include <QApplication>
++#include <QPixmapCache>
+ #include <QCommandLineParser>
+ #include <QDesktopServices>
+ #include <QDir>
+@@ -186,6 +187,11 @@ main(int argc, char *argv[])
+ 
+     QApplication app(argc, argv);
+ 
++    // Increase the QPixmapCache limit to 150 MB so frequently-used avatars
++    // stay in VRAM memory, avoiding re-decodes from disk during scroll.
++    // Default is ~10 MB which is insufficient for 200+ room avatars.
++    QPixmapCache::setCacheLimit(150 * 1024);
++
+     QCommandLineParser parser;
+     parser.addHelpOption();
+     parser.addVersionOption();
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index a707c102..3b56c018 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -5,6 +5,7 @@
+ #include "CommunitiesModel.h"
+ 
+ #include <mtx/responses/common.hpp>
++#include <mtx/responses.hpp>
+ #include <set>
+ 
+ #include "Cache.h"
+@@ -190,12 +191,52 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Messages from your server or administrator.");
+             }
++        } else if (tag == QLatin1String("virtual:unread")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
++                return QStringLiteral("qrc:/icons/icons/ui/alert.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return customName.isEmpty() ? tr("Unread") : customName;
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Rooms with unread messages.");
++            case CommunitiesModel::Roles::UnreadMessages:
++                return (int)globalUnreads.notification_count;
++            case CommunitiesModel::Roles::HasLoudNotification:
++                return globalUnreads.highlight_count > 0;
++            }
++        } else if (tag == QLatin1String("virtual:groups")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon.startsWith(":/") ? customIcon.replace(":/", "qrc:/") : customIcon;
++                return QStringLiteral("qrc:/icons/icons/ui/people.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return customName.isEmpty() ? tr("Groups") : customName;
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Group chats.");
++            case CommunitiesModel::Roles::UnreadMessages:
++                return (int)globalUnreads.notification_count;
++            case CommunitiesModel::Roles::HasLoudNotification:
++                return globalUnreads.highlight_count > 0;
++            }
+         } else {
++            // Check for Beeper custom label override
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty())
++                    return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+             case CommunitiesModel::Roles::Tooltip:
++                if (!customName.isEmpty())
++                    return customName;
+                 return tag.mid(2);
+             }
+         }
+@@ -365,6 +406,10 @@ CommunitiesModel::initializeSidebar()
+     for (const auto &t : ts)
+         tags_.push_back(QString::fromStdString(t));
+ 
++    // Add virtual tags for dynamic sidebar sections
++    tags_.push_back(QStringLiteral("virtual:unread"));
++    tags_.push_back(QStringLiteral("virtual:groups"));
++
+     spaceOrder_.restoreCollapsed();
+ 
+     for (auto &space : spaceOrder_.tree) {
+@@ -937,4 +982,122 @@ CommunitiesModel::updateSpaceStatus(QString space,
+     }
+ }
+ 
++QVariantList
++CommunitiesModel::allSpacesForRoom(QString roomId) const
++{
++    QVariantList ret;
++    auto room_ = roomId.toStdString();
++
++    for (const auto &[id, info] : spaces_) {
++        auto spaceId = id.toStdString();
++
++        auto child =
++          cache::client()->getStateEvent<mtx::events::state::space::Child>(spaceId, room_);
++        bool childValid =
++          child && !child->content.via.value_or(std::vector<std::string>{}).empty();
++
++        bool canEdit = Permissions(id).canChange(qml_mtx_events::SpaceChild);
++
++        ret.push_back(QVariant::fromValue(SpaceItem(id,
++                                                     QString::fromStdString(info.name),
++                                                     -1,
++                                                     childValid,
++                                                     false,
++                                                     false,
++                                                     canEdit,
++                                                     false)));
++    }
++
++    return ret;
++}
++
++// -----------------------------------------------------------------------
++// Space CRUD
++// -----------------------------------------------------------------------
++void
++CommunitiesModel::createSpace(const QString &name, const QString &topic, const QString &avatarUrl, bool isPublic)
++{
++    mtx::requests::CreateRoom req;
++    req.name          = name.toStdString();
++    req.topic         = topic.toStdString();
++    req.creation_content       = mtx::events::state::Create{};
++    req.creation_content->type = mtx::events::state::room_type::space;
++    req.preset        = isPublic ? mtx::requests::Preset::PublicChat : mtx::requests::Preset::PrivateChat;
++
++    if (!avatarUrl.isEmpty()) {
++        mtx::events::StrippedEvent<mtx::events::state::Avatar> avatarEvent;
++        avatarEvent.type              = mtx::events::EventType::RoomAvatar;
++        avatarEvent.content.url = avatarUrl.toStdString();
++        req.initial_state.emplace_back(std::move(avatarEvent));
++    }
++
++    http::client()->create_room(
++      req,
++      [this](const mtx::responses::CreateRoom &res, mtx::http::RequestErr err) {
++          if (err) {
++              QString msg = QString::fromStdString(err->matrix_error.error);
++              nhlog::ui()->error("Failed to create space: {}", msg.toStdString());
++              emit spaceError(tr("Failed to create space: %1").arg(msg));
++              return;
++          }
++          QString roomId = QString::fromStdString(res.room_id.to_string());
++          nhlog::ui()->info("Created space: {}", roomId.toStdString());
++          initializeSidebar();
++          emit spaceCreated(roomId);
++      });
++}
++
++void
++CommunitiesModel::updateSpace(const QString &spaceId, const QString &name, const QString &topic, const QString &avatarUrl)
++{
++    auto room_id = spaceId.toStdString();
++
++    // Send m.room.name if provided
++    if (!name.isEmpty()) {
++        mtx::events::state::Name nameEvent;
++        nameEvent.name = name.toStdString();
++        http::client()->send_state_event(
++          room_id, nameEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space name: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    // Send m.room.topic if provided
++    if (!topic.isEmpty()) {
++        mtx::events::state::Topic topicEvent;
++        topicEvent.topic = topic.toStdString();
++        http::client()->send_state_event(
++          room_id, topicEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space topic: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    // Send m.room.avatar if provided
++    if (!avatarUrl.isEmpty()) {
++        mtx::events::state::Avatar avatarEvent;
++        avatarEvent.url = avatarUrl.toStdString();
++        http::client()->send_state_event(
++          room_id, avatarEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space avatar: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    emit spaceUpdated(spaceId);
++}
++
++void
++CommunitiesModel::deleteSpace(const QString &spaceId)
++{
++    // Leave the space room
++    ChatPage::instance()->leaveRoom(spaceId, QStringLiteral("Space deleted"));
++    emit spaceDeleted(spaceId);
++    initializeSidebar();
++}
++
+ #include "moc_CommunitiesModel.cpp"
+diff --git a/src/timeline/EventStore.cpp b/src/timeline/EventStore.cpp
+index bc086a14..c9c413a6 100644
+--- a/src/timeline/EventStore.cpp
++++ b/src/timeline/EventStore.cpp
+@@ -21,10 +21,10 @@
+ #include "UserSettingsPage.h"
+ #include "Utils.h"
+ 
+-QCache<EventStore::IdIndex, olm::DecryptionResult> EventStore::decryptedEvents_{1000};
++QCache<EventStore::IdIndex, olm::DecryptionResult> EventStore::decryptedEvents_{3000};
+ QCache<EventStore::IdIndex, mtx::events::collections::TimelineEvents> EventStore::events_by_id_{
+-  1000};
+-QCache<EventStore::Index, mtx::events::collections::TimelineEvents> EventStore::events_{1000};
++  3000};
++QCache<EventStore::Index, mtx::events::collections::TimelineEvents> EventStore::events_{3000};
+ 
+ EventStore::EventStore(std::string room_id, QObject *)
+   : room_id_(std::move(room_id))
+diff --git a/src/timeline/RoomlistModel.cpp b/src/timeline/RoomlistModel.cpp
+index ce2a8f84..44aee0a7 100644
+--- a/src/timeline/RoomlistModel.cpp
++++ b/src/timeline/RoomlistModel.cpp
+@@ -14,6 +14,7 @@
+ #include "MainWindow.h"
+ #include "MatrixClient.h"
+ #include "MxcImageProvider.h"
++#include "AvatarProvider.h"
+ #include "TimelineModel.h"
+ #include "TimelineViewManager.h"
+ #include "UserSettingsPage.h"
+@@ -24,6 +25,90 @@
+ #include <QDBusConnection>
+ #endif
+ 
++namespace {
++// ---------------------------------------------------------------------------
++// Beeper MXID-based network detection helpers
++// ---------------------------------------------------------------------------
++
++// Bridge MXID localpart prefix → {display name, brand hex color}
++static const QHash<QString, QPair<QString, QColor>> kBeeperPrefixMap = {
++    {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
++    {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
++    {"instagram_",    {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++    {"instagramgo_",  {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++    {"telegram_",     {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++    {"telegramgo_",   {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++    {"signal_",       {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++    {"signalgo_",     {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++    {"discord_",      {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++    {"discordgo_",    {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++    {"facebook_",     {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++    {"facebookgo_",   {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++    {"slack_",        {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++    {"slackgo_",      {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++    {"googlechat_",   {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++    {"googlechatgo_", {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++    {"linkedin_",     {QStringLiteral("LinkedIn"),     QColor(0x0A, 0x66, 0xC2)}},
++    {"linkedingo_",   {QStringLiteral("LinkedIn"),     QColor(0x0A, 0x66, 0xC2)}},
++    {"twitter_",      {QStringLiteral("Twitter/X"),    QColor(0x00, 0x00, 0x00)}},
++    {"twittergo_",    {QStringLiteral("Twitter/X"),    QColor(0x00, 0x00, 0x00)}},
++    {"sms_",          {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++    {"smsgo_",        {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++    {"imessage_",     {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++    {"imessagego_",   {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++    {"groupme_",      {QStringLiteral("GroupMe"),      QColor(0x00, 0xAF, 0xF0)}},
++    {"groupmego_",    {QStringLiteral("GroupMe"),      QColor(0x00, 0xAF, 0xF0)}},
++    {"skype_",        {QStringLiteral("Skype"),        QColor(0x00, 0xAF, 0xF0)}},
++    {"skypego_",      {QStringLiteral("Skype"),        QColor(0x00, 0xAF, 0xF0)}},
++    {"wechat_",       {QStringLiteral("WeChat"),       QColor(0x07, 0xC1, 0x60)}},
++    {"wechatgo_",     {QStringLiteral("WeChat"),       QColor(0x07, 0xC1, 0x60)}},
++    {"line_",         {QStringLiteral("LINE"),         QColor(0x00, 0xC3, 0x00)}},
++    {"linego_",       {QStringLiteral("LINE"),         QColor(0x00, 0xC3, 0x00)}},
++    {"kakaotalk_",    {QStringLiteral("KakaoTalk"),    QColor(0xFE, 0xE5, 0x00)}},
++    {"kakaotalkgo_",  {QStringLiteral("KakaoTalk"),    QColor(0xFE, 0xE5, 0x00)}},
++};
++
++// Given a fully-qualified MXID, extract the localpart prefix and look up
++// the corresponding bridge network info. Returns empty BeeperNetworkInfo
++// when no known bridge prefix matches.
++BeeperNetworkInfo
++beeperNetworkFromMxid(const QString &mxid)
++{
++    // Parse localpart: @prefix_rest:server
++    const auto atPos = mxid.indexOf(QLatin1Char('@'));
++    if (atPos < 0)
++        return {};
++    const auto colonPos = mxid.indexOf(QLatin1Char(':'), atPos + 1);
++    if (colonPos < 0)
++        return {};
++
++    const auto localpart = mxid.mid(atPos + 1, colonPos - atPos - 1);
++
++    // Scan prefix map (longer prefixes first for correctness with e.g.
++    // "instagramgo_" vs "instagram_").
++    for (auto it = kBeeperPrefixMap.constBegin(); it != kBeeperPrefixMap.constEnd(); ++it) {
++        if (localpart.startsWith(it.key(), Qt::CaseInsensitive))
++            return {it.value().first, it.value().second, QString()};
++    }
++
++    // Fallback: extract text before the first underscore, strip trailing
++    // "go" suffix, capitalize.
++    const auto underscorePos = localpart.indexOf(QLatin1Char('_'));
++    if (underscorePos > 0) {
++        auto prefix = localpart.left(underscorePos);
++        if (prefix.endsWith(QStringLiteral("go"), Qt::CaseInsensitive))
++            prefix.chop(2);
++        if (!prefix.isEmpty()) {
++            prefix[0] = prefix[0].toUpper();
++            return {prefix, QColor(), QString()};
++        }
++    }
++
++    return {QString(), QColor(), QString()};
++}
++
++} // namespace
++
+ RoomlistModel::RoomlistModel(TimelineViewManager *parent)
+   : QAbstractListModel(parent)
+   , manager(parent)
+@@ -87,6 +172,9 @@ RoomlistModel::roleNames() const
+       {ParentSpaces, "parentSpaces"},
+       {IsDirect, "isDirect"},
+       {DirectChatOtherUserId, "directChatOtherUserId"},
++      {BeeperNetworkRole, "beeperNetwork"},
++      {BeeperNetworkColorRole, "beeperNetworkColor"},
++      {BeeperNetworkOtherUserId, "beeperNetworkOtherUserId"},
+     };
+ }
+ 
+@@ -106,6 +194,13 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+         } else if (role == Roles::RoomId) {
+             return roomid;
+         } else if (role == Roles::IsDirect) {
++            if (!networkCache.contains(roomid)) const_cast<RoomlistModel*>(this)->updateNetworkCache(roomid);
++            if (networkCache.contains(roomid)) {
++                const auto &netInfo = networkCache.value(roomid);
++                if (!netInfo.name.isEmpty()) {
++                    return netInfo.activeMemberCount <= 1;
++                }
++            }
+             return directChatToUser.count(roomid) > 0;
+         } else if (role == Roles::DirectChatOtherUserId) {
+             return directChatToUser.count(roomid) ? directChatToUser.at(roomid).front()
+@@ -145,6 +240,18 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                     list.push_back(QString::fromStdString(t));
+                 return list;
+             }
++            case Roles::BeeperNetworkRole: {
++                if (!networkCache.contains(roomid)) const_cast<RoomlistModel*>(this)->updateNetworkCache(roomid);
++                return networkCache.value(roomid).name;
++            }
++            case Roles::BeeperNetworkColorRole: {
++                if (!networkCache.contains(roomid)) const_cast<RoomlistModel*>(this)->updateNetworkCache(roomid);
++                return networkCache.value(roomid).color;
++            }
++            case Roles::BeeperNetworkOtherUserId: {
++                if (!networkCache.contains(roomid)) const_cast<RoomlistModel*>(this)->updateNetworkCache(roomid);
++                return networkCache.value(roomid).counterpartMxid;
++            }
+             default:
+                 return {};
+             }
+@@ -174,6 +281,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return false;
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
++            case Roles::BeeperNetworkColorRole:
++                return QString();
++            case Roles::BeeperNetworkOtherUserId:
++                return QString();
+             default:
+                 return {};
+             }
+@@ -205,6 +318,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return true;
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
++            case Roles::BeeperNetworkColorRole:
++                return QString();
++            case Roles::BeeperNetworkOtherUserId:
++                return QString();
+             default:
+                 return {};
+             }
+@@ -236,6 +355,12 @@ RoomlistModel::data(const QModelIndex &index, int role) const
+                 return false;
+             case Roles::Tags:
+                 return QStringList();
++            case Roles::BeeperNetworkRole:
++                return QString();
++            case Roles::BeeperNetworkColorRole:
++                return QString();
++            case Roles::BeeperNetworkOtherUserId:
++                return QString();
+             default:
+                 return {};
+             }
+@@ -374,6 +499,7 @@ RoomlistModel::addRoom(const QString &room_id, bool suppressInsertNotification)
+               (int)(roomids.size() + previewsToAdd.size() - ((wasInvite || wasPreview) ? 1 : 0)));
+ 
+         models.insert(room_id, std::move(newRoom));
++        updateNetworkCache(room_id);
+         if (wasInvite) {
+             auto idx = roomidToIndex(room_id);
+             invites.remove(room_id);
+@@ -518,8 +644,12 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+               std::get_if<mtx::events::AccountDataEvent<mtx::events::account_data::Direct>>(&e)) {
+             auto updatedDMs = updateDMs(*event);
+             for (const auto &r : updatedDMs) {
+-                if (auto idx = roomidToIndex(r); idx != -1)
+-                    emit dataChanged(index(idx), index(idx), {IsDirect, DirectChatOtherUserId});
++                if (auto idx = roomidToIndex(r); idx != -1) {
++                    updateNetworkCache(r);
++                    emit dataChanged(index(idx),
++                                     index(idx),
++                                     {IsDirect, DirectChatOtherUserId, BeeperNetworkRole, BeeperNetworkColorRole});
++                }
+             }
+         }
+     }
+@@ -559,8 +689,10 @@ RoomlistModel::sync(const mtx::responses::Sync &sync_)
+         for (const auto &e : room.account_data.events) {
+             if (std::holds_alternative<
+                   mtx::events::AccountDataEvent<mtx::events::account_data::Tags>>(e)) {
+-                if (auto idx = roomidToIndex(qroomid); idx != -1)
+-                    emit dataChanged(index(idx), index(idx), {Tags});
++                if (auto idx = roomidToIndex(qroomid); idx != -1) {
++                    updateNetworkCache(qroomid);
++                    emit dataChanged(index(idx), index(idx), {Tags, BeeperNetworkRole, BeeperNetworkColorRole});
++                }
+             }
+         }
+     }
+@@ -636,6 +768,11 @@ RoomlistModel::initializeRooms()
+ 
+     endResetModel();
+ 
++    // Rebuild network cache to ensure all rooms have entries
++    // (addRoom already calls updateNetworkCache for each room,
++    // but this catches any edge cases).
++    rebuildNetworkCache();
++
+ #ifdef NHEKO_DBUS_SYS
+     if (MainWindow::instance()->dbusAvailable()) {
+         dbusInterface_ = new NhekoDBusBackend{this};
+@@ -653,6 +790,7 @@ RoomlistModel::clear()
+     models.clear();
+     invites.clear();
+     roomids.clear();
++    networkCache.clear();
+     currentRoom_ = nullptr;
+     emit currentRoomChanged("");
+     endResetModel();
+@@ -828,13 +966,65 @@ RoomlistModel::refetchOnlineKeyBackupKeys()
+     }
+ }
+ 
++void
++RoomlistModel::updateNetworkCache(const QString &roomid)
++{
++    bool isBeeperBridge = false;
++    QString counterpart;
++    BeeperNetworkInfo netInfo;
++    int realContacts = 0;
++
++    if (models.contains(roomid)) {
++        auto local = cache::client()->localUserId();
++        auto members = cache::client()->getMembers(roomid.toStdString());
++
++        for (const auto &m : members) {
++            if (m.user_id == local) continue;
++            QString mxid = m.user_id;
++            if (mxid.contains("bot", Qt::CaseInsensitive) && mxid.contains(":beeper.")) {
++                isBeeperBridge = true;
++                netInfo = beeperNetworkFromMxid(mxid);
++            } else {
++                realContacts++;
++                if (counterpart.isEmpty()) counterpart = mxid;
++            }
++        }
++    }
++
++    if (isBeeperBridge) {
++        if (realContacts > 1) {
++            networkCache.insert(roomid, {netInfo.name, netInfo.color, QString(), 999});
++        } else {
++            networkCache.insert(roomid, {netInfo.name, netInfo.color, counterpart, 1});
++        }
++        return;
++    }
++
++    if (directChatToUser.count(roomid)) {
++        const auto &userId = directChatToUser.at(roomid).front();
++        auto info = beeperNetworkFromMxid(userId);
++        networkCache.insert(roomid, {info.name, info.color, userId, 1});
++        return;
++    }
++
++    networkCache.insert(roomid, {QString(), QColor(), QString(), 0});
++}
++
++void
++RoomlistModel::rebuildNetworkCache()
++{
++    networkCache.clear();
++    networkCache.reserve(static_cast<int>(roomids.size()));
++}
++
+ namespace {
+ enum NotificationImportance : short
+ {
+-    NoPreview          = -3,
+-    Preview            = -2,
+-    ImportanceDisabled = -1,
+-    AllEventsRead      = 0,
++    NoPreview          = -4,
++    Preview            = -3,
++    ImportanceDisabled = -2,
++    AllEventsRead      = -1,
++    UnreadFirst        = 0,
+     NewMessage         = 1,
+     NewMentions        = 2,
+     Invite             = 3,
+@@ -862,12 +1052,15 @@ FilteredRoomlistModel::calculateImportance(const QModelIndex &idx) const
+             return NoPreview;
+     } else if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool()) {
+         return Invite;
+-    } else if (!this->sortByImportance) {
++    } else if (!this->sortByImportance && !this->sortUnreadFirst) {
+         return ImportanceDisabled;
+     } else if (sourceModel()->data(idx, RoomlistModel::HasLoudNotification).toBool()) {
+         return NewMentions;
+     } else if (sourceModel()->data(idx, RoomlistModel::NotificationCount).toInt() > 0) {
+         return NewMessage;
++    } else if (this->sortUnreadFirst &&
++               sourceModel()->data(idx, RoomlistModel::HasUnreadMessages).toBool()) {
++        return UnreadFirst;
+     } else {
+         return AllEventsRead;
+     }
+@@ -919,6 +1112,7 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+ 
+     this->sortByImportance = UserSettings::instance()->sortByImportance();
+     this->sortByAlphabet   = UserSettings::instance()->sortByAlphabet();
++    this->sortUnreadFirst  = UserSettings::instance()->sortUnreadFirst();
+     setSourceModel(model);
+     setDynamicSortFilter(true);
+ 
+@@ -938,6 +1132,14 @@ FilteredRoomlistModel::FilteredRoomlistModel(RoomlistModel *model, QObject *pare
+                          invalidate();
+                      });
+ 
++    QObject::connect(UserSettings::instance().get(),
++                     &UserSettings::sortUnreadFirstChanged,
++                     this,
++                     [this](bool sortUnreadFirst_) {
++                         this->sortUnreadFirst = sortUnreadFirst_;
++                         invalidate();
++                     });
++
+     connect(roomlistmodel,
+             &RoomlistModel::currentRoomChanged,
+             this,
+@@ -1005,6 +1207,80 @@ FilteredRoomlistModel::updateHiddenTagsAndSpaces()
+ bool
+ FilteredRoomlistModel::filterAcceptsRow(int sourceRow, const QModelIndex &) const
+ {
++    if (filterStr == QLatin1String("virtual:unread")) {
++        // Hide spaces and unfetched previews from the unread filter.
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
++              .toBool()) {
++            return false;
++        }
++
++        if (sourceModel()
++              ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsSpace)
++              .toBool()) {
++            return false;
++        }
++
++        if (!hiddenTags.empty()) {
++            auto tags = sourceModel()
++                          ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::Tags)
++                          .toStringList();
++
++            for (const auto &t : std::as_const(tags))
++                if (hiddenTags.contains(t))
++                    return false;
++        }
++
++        if (!hiddenSpaces.empty()) {
++            auto parents = sourceModel()
++                             ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::ParentSpaces)
++                             .toStringList();
++            for (const auto &t : std::as_const(parents))
++                if (hiddenSpaces.contains(t))
++                    return false;
++        }
++
++        bool hasUnread = sourceModel()
++                           ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::HasUnreadMessages)
++                           .toBool();
++        int notifCount = sourceModel()
++                           ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::NotificationCount)
++                           .toInt();
++        return hasUnread || notifCount > 0;
++    }
++    // Virtual:groups — accept only non-direct, non-space rooms (pure group chats).
++    if (filterStr == QLatin1String("virtual:groups")) {
++        const auto idx = sourceModel()->index(sourceRow, 0);
++
++        // Exclude previews, spaces, invites, and direct chats
++        if (sourceModel()->data(idx, RoomlistModel::IsPreview).toBool())
++            return false;
++        if (sourceModel()->data(idx, RoomlistModel::IsSpace).toBool())
++            return false;
++        if (sourceModel()->data(idx, RoomlistModel::IsInvite).toBool())
++            return false;
++        if (sourceModel()->data(idx, RoomlistModel::IsDirect).toBool())
++            return false;
++
++        // Respect hidden tags
++        if (!hiddenTags.empty()) {
++            auto tags = sourceModel()->data(idx, RoomlistModel::Tags).toStringList();
++            for (const auto &t : std::as_const(tags))
++                if (hiddenTags.contains(t))
++                    return false;
++        }
++
++        // Respect hidden spaces
++        if (!hiddenSpaces.empty()) {
++            auto parents = sourceModel()->data(idx, RoomlistModel::ParentSpaces).toStringList();
++            for (const auto &t : std::as_const(parents))
++                if (hiddenSpaces.contains(t))
++                    return false;
++        }
++
++        return true;
++    }
++
+     if (filterType == FilterBy::Nothing) {
+         if (sourceModel()
+               ->data(sourceModel()->index(sourceRow, 0), RoomlistModel::IsPreview)
+@@ -1200,6 +1476,51 @@ FilteredRoomlistModel::toggleTag(const QString &roomid, const QString &tag, bool
+     }
+ }
+ 
++QColor
++FilteredRoomlistModel::networkColorForMxid(const QString &mxid) const
++{
++    // Reuse the same beeper prefix lookup logic from the anonymous namespace
++    const auto atPos = mxid.indexOf(QLatin1Char('@'));
++    if (atPos < 0)
++        return {};
++    const auto colonPos = mxid.indexOf(QLatin1Char(':'), atPos + 1);
++    if (colonPos < 0)
++        return {};
++
++    const auto localpart = mxid.mid(atPos + 1, colonPos - atPos - 1);
++
++    // kBeeperPrefixMap logic duplicated inline for access from the method
++    static const QHash<QString, QPair<QString, QColor>> prefixMap = {
++        {"whatsapp_",     {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
++        {"whatsappgo_",   {QStringLiteral("WhatsApp"),     QColor(0x25, 0xD3, 0x66)}},
++        {"instagram_",    {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++        {"instagramgo_",  {QStringLiteral("Instagram"),    QColor(0xE1, 0x30, 0x6C)}},
++        {"telegram_",     {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++        {"telegramgo_",   {QStringLiteral("Telegram"),     QColor(0x2A, 0xAB, 0xEE)}},
++        {"signal_",       {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++        {"signalgo_",     {QStringLiteral("Signal"),       QColor(0x3A, 0x76, 0xF0)}},
++        {"discord_",      {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++        {"discordgo_",    {QStringLiteral("Discord"),      QColor(0x58, 0x65, 0xF2)}},
++        {"facebook_",     {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++        {"facebookgo_",   {QStringLiteral("Messenger"),    QColor(0x00, 0xB2, 0xFF)}},
++        {"slack_",        {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++        {"slackgo_",      {QStringLiteral("Slack"),        QColor(0x4A, 0x15, 0x4B)}},
++        {"googlechat_",   {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++        {"googlechatgo_", {QStringLiteral("Google Chat"),  QColor(0x34, 0xA8, 0x53)}},
++        {"sms_",          {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++        {"smsgo_",        {QStringLiteral("SMS"),          QColor(0x34, 0xB7, 0xF1)}},
++        {"imessage_",     {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++        {"imessagego_",   {QStringLiteral("iMessage"),     QColor(0x34, 0xC7, 0x59)}},
++    };
++
++    for (auto it = prefixMap.constBegin(); it != prefixMap.constEnd(); ++it) {
++        if (localpart.startsWith(it.key(), Qt::CaseInsensitive))
++            return it.value().second;
++    }
++
++    return {};
++}
++
+ void
+ FilteredRoomlistModel::copyLink(QString roomid)
+ {
+diff --git a/src/timeline/RoomlistModel.h b/src/timeline/RoomlistModel.h
+index 7dfeb707..3783f9a9 100644
+--- a/src/timeline/RoomlistModel.h
++++ b/src/timeline/RoomlistModel.h
+@@ -6,6 +6,7 @@
+ 
+ #include <CacheStructs.h>
+ #include <QAbstractListModel>
++#include <QColor>
+ #include <QHash>
+ #include <QQmlEngine>
+ #include <QSharedPointer>
+@@ -19,6 +20,14 @@
+ #include "dbus/NhekoDBusBackend.h"
+ #endif
+ 
++struct BeeperNetworkInfo
++{
++    QString name;            // e.g. "WhatsApp"
++    QColor color;            // e.g. #25D366
++    QString counterpartMxid; // The real contact's MXID (for avatar outlining)
++    int activeMemberCount = 0; // Number of real (non-bridge-bot) members
++};
++
+ class TimelineModel;
+ class TimelineViewManager;
+ 
+@@ -81,6 +90,9 @@ public:
+         ParentSpaces,
+         IsDirect,
+         DirectChatOtherUserId,
++        BeeperNetworkRole,
++        BeeperNetworkColorRole,
++        BeeperNetworkOtherUserId,
+     };
+ 
+     RoomlistModel(TimelineViewManager *parent = nullptr);
+@@ -129,6 +141,12 @@ public slots:
+         emit currentRoomChanged("");
+     }
+ 
++    //! Update network cache for a single room by computing MXID-based info.
++    void updateNetworkCache(const QString &roomid);
++
++    //! Recompute network cache for all rooms (called on account data change).
++    void rebuildNetworkCache();
++
+ private slots:
+     void updateReadStatus(const std::map<QString, bool> &roomReadStatus_);
+ 
+@@ -155,6 +173,9 @@ private:
+ 
+     std::map<QString, std::vector<QString>> directChatToUser;
+ 
++    //! Cache of MXID-based Beeper network info for O(1) data() access.
++    QHash<QString, BeeperNetworkInfo> networkCache;
++
+ #ifdef NHEKO_DBUS_SYS
+     NhekoDBusBackend *dbusInterface_;
+     friend class NhekoDBusBackend;
+@@ -195,6 +216,7 @@ public slots:
+     void leave(QString roomid, QString reason = "") { roomlistmodel->leave(roomid, reason); }
+     void toggleTag(const QString &roomid, const QString &tag, bool on);
+     void copyLink(QString roomid);
++    Q_INVOKABLE QColor networkColorForMxid(const QString &mxid) const;
+ 
+     TimelineModel *currentRoom() const { return roomlistmodel->currentRoom(); }
+     RoomPreview currentRoomPreview() const { return roomlistmodel->currentRoomPreview(); }
+@@ -216,7 +238,9 @@ public slots:
+         beginFilterChange();
+ #endif
+ 
+-        if (tagId.startsWith(QLatin1String("tag:"))) {
++        if (tagId.startsWith(QLatin1String("tag:")) &&
++            tagId != QLatin1String("tag:virtual:unread") &&
++            tagId != QLatin1String("tag:virtual:groups")) {
+             filterType = FilterBy::Tag;
+             filterStr  = tagId.mid(4);
+         } else if (tagId.startsWith(QLatin1String("space:"))) {
+@@ -226,6 +250,12 @@ public slots:
+         } else if (tagId.startsWith(QLatin1String("dm"))) {
+             filterType = FilterBy::DirectChats;
+             filterStr.clear();
++        } else if (tagId == QLatin1String("tag:virtual:unread")) {
++            filterType = FilterBy::Nothing;
++            filterStr = QLatin1String("virtual:unread");
++        } else if (tagId == QLatin1String("tag:virtual:groups")) {
++            filterType = FilterBy::Nothing;
++            filterStr = QLatin1String("virtual:groups");
+         } else {
+             filterType = FilterBy::Nothing;
+             filterStr.clear();
+@@ -248,6 +278,7 @@ private:
+     RoomlistModel *roomlistmodel;
+     bool sortByImportance = true;
+     bool sortByAlphabet   = false;
++    bool sortUnreadFirst  = false;
+ 
+     enum class FilterBy
+     {

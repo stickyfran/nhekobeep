@@ -1,0 +1,42 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout nhekobeep
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Apply patches to nheko
+      shell: bash
+      run: |
+        cd nheko
+        git apply ../patches/0000-unified-nhekobeep.patch
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        arch: 'win64_msvc2019_64'
+
+    - name: Run Nheko Windows build script
+      shell: cmd
+      working-directory: nheko
+      run: |
+        call .ci\windows\build.bat
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nhekobeep-windows
+        path: |
+          nheko/nheko.msix
+          nheko/nheko_win_64.zip

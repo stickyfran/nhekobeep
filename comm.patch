@@ -1,0 +1,263 @@
+diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
+index a1344749..826c461a 100644
+--- a/resources/qml/CommunitiesList.qml
++++ b/resources/qml/CommunitiesList.qml
+@@ -29,12 +29,99 @@ Page {
+ 
+         target: MainWindow
+     }
++    header: Rectangle {
++        id: sidebarHeader
++        width: parent.width
++        height: collapsed ? 0 : 36
++        color: "transparent"
++        visible: !collapsed
++
++        RowLayout {
++            anchors.fill: parent
++            anchors.margins: Nheko.paddingSmall
++            spacing: Nheko.paddingSmall
++
++            Item {
++                Layout.fillWidth: true
++            }
++
++            ImageButton {
++                id: createSpaceBtn
++                Layout.preferredWidth: 22
++                Layout.preferredHeight: 22
++                image: ":/icons/icons/ui/plus.svg"
++                ToolTip.text: qsTr("Create Space")
++                ToolTip.visible: hovered
++                hoverEnabled: true
++
++                onClicked: createSpaceDialog.open()
++
++                Dialog {
++                    id: createSpaceDialog
++                    title: qsTr("Create Space")
++                    standardButtons: Dialog.Ok | Dialog.Cancel
++                    modal: true
++                    anchors.centerIn: parent
++                    width: 350
++
++                    ColumnLayout {
++                        spacing: Nheko.paddingMedium
++                        width: parent ? parent.width : 300
++
++                        Label { text: qsTr("Name:") }
++                        TextField {
++                            id: spaceNameField
++                            placeholderText: qsTr("My Space")
++                            Layout.fillWidth: true
++                        }
++
++                        Label { text: qsTr("Topic (optional):") }
++                        TextField {
++                            id: spaceTopicField
++                            placeholderText: qsTr("Description of this space")
++                            Layout.fillWidth: true
++                        }
++
++                        CheckBox {
++                            id: spacePublicCheck
++                            text: qsTr("Public space")
++                            checked: false
++                        }
++                    }
++
++                    onAccepted: {
++                        if (spaceNameField.text) {
++                            Communities.createSpace(
++                                spaceNameField.text,
++                                spaceTopicField.text,
++                                "",
++                                spacePublicCheck.checked);
++                        }
++                    }
++                }
++            }
++
++            ImageButton {
++                id: collapseBtn
++                Layout.preferredWidth: 22
++                Layout.preferredHeight: 22
++                image: ":/icons/icons/ui/collapse.svg"
++                ToolTip.text: qsTr("Collapse sidebar")
++                ToolTip.visible: hovered
++                hoverEnabled: true
++
++                onClicked: communitySidebar.collapsed = !communitySidebar.collapsed
++            }
++        }
++    }
++
+     ListView {
+         id: communitiesList
+ 
+         anchors.left: parent.left
+         anchors.right: parent.right
+-        height: parent.height
++        anchors.top: sidebarHeader.bottom
++        height: parent.height - sidebarHeader.height
+         model: Communities.filtered()
+         boundsBehavior: Flickable.StopAtBounds
+ 
+@@ -139,8 +226,59 @@ Page {
+                     Layout.preferredWidth: fontMetrics.lineSpacing
+                     visible: !communitySidebar.collapsed && !model.collapsible && Communities.containsSubspaces
+                 }
++
++                // Determine if the avatarUrl is an emoji (custom label icon) or a real image path.
++                readonly property bool isEmojiIcon: {
++                    if (!model.avatarUrl || model.avatarUrl.length === 0)
++                        return false;
++                    // Image paths start with known prefixes; anything else is treated as an emoji/text icon.
++                    if (model.avatarUrl.startsWith("mxc://") ||
++                        model.avatarUrl.startsWith(":/") ||
++                        model.avatarUrl.startsWith("qrc:/") ||
++                        model.avatarUrl.startsWith("image://"))
++                        return false;
++                    return true;
++                }
++
++                // Emoji icon display (for custom label emoji icons).
++                Item {
++                    Layout.alignment: Qt.AlignVCenter
++                    Layout.preferredHeight: avatarSize
++                    Layout.preferredWidth: avatarSize
++                    visible: isEmojiIcon
++
++                    Rectangle {
++                        anchors.fill: parent
++                        color: communityItem.backgroundColor
++                        radius: Settings.avatarCircles ? height / 2 : height / 8
++
++                        Label {
++                            anchors.centerIn: parent
++                            text: model.avatarUrl
++                            font.pixelSize: avatarSize * 0.55
++                            horizontalAlignment: Text.AlignHCenter
++                            verticalAlignment: Text.AlignVCenter
++                            textFormat: Text.PlainText
++                        }
++                    }
++
++                    NotificationBubble {
++                        anchors.bottom: parent.bottom
++                        anchors.margins: -Nheko.paddingSmall
++                        anchors.right: parent.right
++                        bubbleBackgroundColor: communityItem.bubbleBackground
++                        bubbleTextColor: communityItem.bubbleText
++                        font.pixelSize: fontMetrics.font.pixelSize * 0.6
++                        hasLoudNotification: model.hasLoudNotification
++                        mayBeVisible: communitySidebar.collapsed && !model.muted && Settings.spaceNotifications
++                        notificationCount: model.unreadMessages
++                    }
++                }
++
++                // Standard avatar display (for MXC, SVG, and image provider icons).
+                 Avatar {
+                     id: avatar
++                    visible: !isEmojiIcon
+ 
+                     Layout.alignment: Qt.AlignVCenter
+                     color: communityItem.backgroundColor
+@@ -230,6 +368,97 @@ Page {
+ 
+                 onTriggered: Communities.toggleTagId(communityContextMenu.tagId)
+             }
++            MenuSeparator {}
++            MenuItem {
++                text: qsTr("Change icon...")
++                onTriggered: {
++                    var dialog = Qt.createComponent("qrc:/resources/qml/dialogs/IconPickerDialog.qml");
++                    if (dialog.status == Component.Ready) {
++                        var win = dialog.createObject(communitySidebar, {
++                            "currentTagId": communityContextMenu.tagId
++                        });
++                        win.show();
++                    }
++                }
++            
++                Component {
++                    id: editSpaceDialogComponent
++            
++                    Dialog {
++                        id: editSpaceDialog
++                        property string spaceId
++                        title: qsTr("Edit Space")
++                        standardButtons: Dialog.Ok | Dialog.Cancel
++                        modal: true
++                        anchors.centerIn: parent
++                        width: 350
++            
++                        ColumnLayout {
++                            spacing: Nheko.paddingMedium
++                            width: parent ? parent.width : 300
++            
++                            Label { text: qsTr("Name:") }
++                            TextField {
++                                id: editSpaceNameField
++                                placeholderText: qsTr("New space name")
++                                Layout.fillWidth: true
++                            }
++            
++                            Label { text: qsTr("Topic:") }
++                            TextField {
++                                id: editSpaceTopicField
++                                placeholderText: qsTr("New space topic")
++                                Layout.fillWidth: true
++                            }
++                        }
++            
++                        onAccepted: {
++                            Communities.updateSpace(
++                                editSpaceDialog.spaceId,
++                                editSpaceNameField.text,
++                                editSpaceTopicField.text,
++                                "");
++                        }
++                    }
++                }
++            }
++            MenuItem {
++                text: qsTr("Edit Label...")
++                readonly property string pureTag: {
++                    var id = communityContextMenu.tagId;
++                    if (id.startsWith("tag:"))
++                        return id.substring(4);
++                    return id;
++                }
++                visible: pureTag.startsWith("u.") || pureTag.startsWith("virtual:") || CustomLabelListModel.displayNameForTag(pureTag) !== ""
++                onTriggered: {
++                    // Open label editor dialog
++                    var dialog = Qt.createComponent("qrc:/resources/qml/dialogs/IconPickerDialog.qml");
++                    if (dialog.status == Component.Ready) {
++                        var win = dialog.createObject(communitySidebar, {
++                            "currentTagId": communityContextMenu.tagId
++                        });
++                        win.show();
++                    }
++                }
++            }
++            MenuItem {
++                text: qsTr("Edit Space...")
++                enabled: communityContextMenu.tagId.startsWith("space:")
++                onTriggered: {
++                    var editDialog = editSpaceDialogComponent.createObject(communitySidebar, {
++                        "spaceId": communityContextMenu.tagId.toString().substring(6)
++                    });
++                    editDialog.show();
++                }
++            }
++            MenuItem {
++                text: qsTr("Delete Space")
++                enabled: communityContextMenu.tagId.startsWith("space:")
++                onTriggered: {
++                    Communities.deleteSpace(communityContextMenu.tagId.toString().substring(6));
++                }
++            }
+         }
+     }
+ }
