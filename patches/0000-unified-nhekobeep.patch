@@ -1520,9 +1520,6 @@ index 8f51e668..5cf0684a 100644
 +    }
  }
  
-diff --git a/scripts/codegen.sh b/scripts/codegen.sh
-old mode 100644
-new mode 100755
 diff --git a/src/AvatarProvider.cpp b/src/AvatarProvider.cpp
 index 4608aca4..e02f59a5 100644
 --- a/src/AvatarProvider.cpp
