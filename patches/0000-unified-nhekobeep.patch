@@ -6515,3 +6515,566 @@ index 16f0844f..40d91c62 100644
      // static_cast<NhekoMenuVisibilityFilter *>(p->object)->updateTarget();
  }
  void
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index a707c102..dff9b3a7 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -5,6 +5,7 @@
+ #include "CommunitiesModel.h"
+ 
+ #include <mtx/responses/common.hpp>
++#include <mtx/responses.hpp>
+ #include <set>
+ 
+ #include "Cache.h"
+@@ -48,11 +49,11 @@ CommunitiesModel::setData(const QModelIndex &index, const QVariant &value, int r
+ {
+     if (role != CommunitiesModel::Collapsed)
+         return false;
+-    else if (index.row() >= 2 || index.row() - 2 < spaceOrder_.size()) {
+-        spaceOrder_.tree.at(index.row() - 2).collapsed = value.toBool();
++    else if (index.row() >= 1 || index.row() - 1 < spaceOrder_.size()) {
++        spaceOrder_.tree.at(index.row() - 1).collapsed = value.toBool();
+ 
+-        const auto cindex = spaceOrder_.lastChild(index.row() - 2);
+-        emit dataChanged(index, this->index(cindex + 2), {Collapsed, Qt::DisplayRole});
++        const auto cindex = spaceOrder_.lastChild(index.row() - 1);
++        emit dataChanged(index, this->index(cindex + 1), {Collapsed, Qt::DisplayRole});
+         spaceOrder_.storeCollapsed();
+         return true;
+     } else
+@@ -70,11 +71,14 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+     }
+ 
+     if (index.row() == 0) {
++        auto customName = UserSettings::instance()->customLabelDisplayName("global");
++        auto customIcon = UserSettings::instance()->customLabelIconKey("global");
+         switch (role) {
+         case CommunitiesModel::Roles::AvatarUrl:
++            if (!customIcon.isEmpty()) return customIcon;
+             return QStringLiteral(":/icons/icons/ui/world.svg");
+         case CommunitiesModel::Roles::DisplayName:
+-            return tr("All rooms");
++            return customName.isEmpty() ? tr("All rooms") : customName;
+         case CommunitiesModel::Roles::Tooltip:
+             return tr("Shows all rooms without filtering.");
+         case CommunitiesModel::Roles::Collapsed:
+@@ -88,39 +92,14 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+         case CommunitiesModel::Roles::Depth:
+             return 0;
+         case CommunitiesModel::Roles::Id:
+-            return "";
++            return "global";
+         case CommunitiesModel::Roles::UnreadMessages:
+             return (int)globalUnreads.notification_count;
+         case CommunitiesModel::Roles::HasLoudNotification:
+             return globalUnreads.highlight_count > 0;
+         }
+-    } else if (index.row() == 1) {
+-        switch (role) {
+-        case CommunitiesModel::Roles::AvatarUrl:
+-            return QStringLiteral(":/icons/icons/ui/people.svg");
+-        case CommunitiesModel::Roles::DisplayName:
+-            return tr("Direct Chats");
+-        case CommunitiesModel::Roles::Tooltip:
+-            return tr("Show direct chats.");
+-        case CommunitiesModel::Roles::Collapsed:
+-            return false;
+-        case CommunitiesModel::Roles::Collapsible:
+-            return false;
+-        case CommunitiesModel::Roles::Hidden:
+-            return hiddenTagIds_.contains(QStringLiteral("dm"));
+-        case CommunitiesModel::Roles::Parent:
+-            return "";
+-        case CommunitiesModel::Roles::Depth:
+-            return 0;
+-        case CommunitiesModel::Roles::Id:
+-            return "dm";
+-        case CommunitiesModel::Roles::UnreadMessages:
+-            return (int)dmUnreads.notification_count;
+-        case CommunitiesModel::Roles::HasLoudNotification:
+-            return dmUnreads.highlight_count > 0;
+-        }
+-    } else if (index.row() - 2 < spaceOrder_.size()) {
+-        auto id = spaceOrder_.tree.at(index.row() - 2).id;
++    } else if (index.row() - 1 < spaceOrder_.size()) {
++        auto id = spaceOrder_.tree.at(index.row() - 1).id;
+         switch (role) {
+         case CommunitiesModel::Roles::AvatarUrl:
+             return QString::fromStdString(spaces_.at(id).avatar_url);
+@@ -128,74 +107,125 @@ CommunitiesModel::data(const QModelIndex &index, int role) const
+         case CommunitiesModel::Roles::Tooltip:
+             return QString::fromStdString(spaces_.at(id).name);
+         case CommunitiesModel::Roles::Collapsed:
+-            return spaceOrder_.tree.at(index.row() - 2).collapsed;
++            return spaceOrder_.tree.at(index.row() - 1).collapsed;
+         case CommunitiesModel::Roles::Collapsible: {
+-            auto idx = index.row() - 2;
++            auto idx = index.row() - 1;
+             return idx != spaceOrder_.lastChild(idx);
+         }
+         case CommunitiesModel::Roles::Hidden:
+             return hiddenTagIds_.contains("space:" + id);
+         case CommunitiesModel::Roles::Parent: {
+-            if (auto p = spaceOrder_.parent(index.row() - 2); p >= 0)
++            if (auto p = spaceOrder_.parent(index.row() - 1); p >= 0)
+                 return spaceOrder_.tree[p].id;
+ 
+             return "";
+         }
+         case CommunitiesModel::Roles::Depth:
+-            return spaceOrder_.tree.at(index.row() - 2).depth;
++            return spaceOrder_.tree.at(index.row() - 1).depth;
+         case CommunitiesModel::Roles::Id:
+             return "space:" + id;
+         case CommunitiesModel::Roles::UnreadMessages: {
+             int count = 0;
+-            auto end  = spaceOrder_.lastChild(index.row() - 2);
+-            for (int i = index.row() - 2; i <= end; i++)
++            auto end  = spaceOrder_.lastChild(index.row() - 1);
++            for (int i = index.row() - 1; i <= end; i++)
+                 count +=
+                   static_cast<int>(spaceOrder_.tree[i].notificationCounts.notification_count);
+             return count;
+         }
+         case CommunitiesModel::Roles::HasLoudNotification: {
+-            auto end = spaceOrder_.lastChild(index.row() - 2);
+-            for (int i = index.row() - 2; i <= end; i++)
++            auto end = spaceOrder_.lastChild(index.row() - 1);
++            for (int i = index.row() - 1; i <= end; i++)
+                 if (spaceOrder_.tree[i].notificationCounts.highlight_count > 0)
+                     return true;
+             return false;
+         }
+         }
+-    } else if (index.row() - 2 < tags_.size() + spaceOrder_.size()) {
+-        auto tag = tags_.at(index.row() - 2 - spaceOrder_.size());
++    } else if (index.row() - 1 < tags_.size() + spaceOrder_.size()) {
++        auto tag = tags_.at(index.row() - 1 - spaceOrder_.size());
+         if (tag == QLatin1String("m.favourite")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/star.svg");
+             case CommunitiesModel::Roles::DisplayName:
+-                return tr("Favourites");
++                return customName.isEmpty() ? tr("Favourites") : customName;
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Rooms you have favourited.");
+             }
+         } else if (tag == QLatin1String("m.lowpriority")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/lowprio.svg");
+             case CommunitiesModel::Roles::DisplayName:
+-                return tr("Low Priority");
++                return customName.isEmpty() ? tr("Low Priority") : customName;
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Rooms with low priority.");
+             }
+         } else if (tag == QLatin1String("m.server_notice")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+-                return tr("Server Notices");
++                return customName.isEmpty() ? tr("Server Notices") : customName;
+             case CommunitiesModel::Roles::Tooltip:
+                 return tr("Messages from your server or administrator.");
+             }
++        } else if (tag == QLatin1String("virtual:unread")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon;
++                return QStringLiteral(":/icons/icons/ui/alert.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return customName.isEmpty() ? tr("Unread") : customName;
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Rooms with unread messages.");
++            case CommunitiesModel::Roles::UnreadMessages:
++                return (int)globalUnreads.notification_count;
++            case CommunitiesModel::Roles::HasLoudNotification:
++                return globalUnreads.highlight_count > 0;
++            }
++        } else if (tag == QLatin1String("virtual:groups")) {
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++            switch (role) {
++            case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty()) return customIcon;
++                return QStringLiteral(":/icons/icons/ui/people.svg");
++            case CommunitiesModel::Roles::DisplayName:
++                return customName.isEmpty() ? tr("Groups") : customName;
++            case CommunitiesModel::Roles::Tooltip:
++                return tr("Group chats.");
++            }
+         } else {
++            // Check for Beeper custom label override
++            auto customName = UserSettings::instance()->customLabelDisplayName(tag);
++            auto customIcon = UserSettings::instance()->customLabelIconKey(tag);
++
+             switch (role) {
+             case CommunitiesModel::Roles::AvatarUrl:
++                if (!customIcon.isEmpty())
++                    return customIcon;
+                 return QStringLiteral(":/icons/icons/ui/tag.svg");
+             case CommunitiesModel::Roles::DisplayName:
+             case CommunitiesModel::Roles::Tooltip:
++                if (!customName.isEmpty())
++                    return customName;
++                if (tag.startsWith(QLatin1String("beeper:"))) {
++                    auto labels = cache::client()->getBeeperLabels();
++                    auto uuid = tag.mid(7).toStdString();
++                    if (labels.count(uuid)) return QString::fromStdString(labels[uuid].title);
++                    return tag.mid(7);
++                }
+                 return tag.mid(2);
+             }
+         }
+@@ -297,6 +327,11 @@ CommunitiesModel::initializeSidebar()
+ 
+     std::set<std::string> ts;
+ 
++    auto beeperLabels = cache::client()->getBeeperLabels();
++    for (const auto &[uuid, label] : beeperLabels) {
++        ts.insert("beeper:" + uuid);
++    }
++
+     std::set<std::string> isSpace;
+     std::map<std::string, std::set<std::string>> spaceChilds;
+     std::map<std::string, std::set<std::string>> spaceParents;
+@@ -308,7 +343,7 @@ CommunitiesModel::initializeSidebar()
+             isSpace.insert(it.key().toStdString());
+         } else {
+             for (const auto &t : it.value().tags) {
+-                if (t.find("u.") == 0 || t.find("m." == 0)) {
++                if (t.find("u.") == 0 || t.find("m.") == 0 || t.find("beeper:") == 0) {
+                     ts.insert(t);
+                 }
+             }
+@@ -362,8 +397,34 @@ CommunitiesModel::initializeSidebar()
+     // NOTE(Nico): This flattens the tree into a list, preserving the depth at each element.
+     spacetree.flatten(spaceOrder_);
+ 
+-    for (const auto &t : ts)
+-        tags_.push_back(QString::fromStdString(t));
++    // Add virtual tags for dynamic sidebar sections FIRST
++    tags_.push_back(QStringLiteral("virtual:unread"));
++    tags_.push_back(QStringLiteral("virtual:groups"));
++
++    if (ts.count("m.favourite")) {
++        tags_.push_back(QStringLiteral("m.favourite"));
++    }
++
++    for (const auto &t : ts) {
++        if (t != "m.favourite") {
++            tags_.push_back(QString::fromStdString(t));
++        }
++    }
++
++    QStringList customOrder = UserSettings::instance()->customTagOrder();
++    if (!customOrder.isEmpty()) {
++        QStringList sortedTags;
++        for (const QString &t : customOrder) {
++            if (tags_.contains(t)) {
++                sortedTags.push_back(t);
++                tags_.removeAll(t);
++            }
++        }
++        for (const QString &t : tags_) {
++            sortedTags.push_back(t);
++        }
++        tags_ = sortedTags;
++    }
+ 
+     spaceOrder_.restoreCollapsed();
+ 
+@@ -518,7 +579,7 @@ CommunitiesModel::sync(const mtx::responses::Sync &sync_)
+             for (const auto &t : tags) {
+                 auto tagId = QString::fromStdString(t);
+                 applyDiff(tagNotificationCache[tagId]);
+-                int idx = tags_.indexOf(tagId) + 2 + spaceOrder_.size();
++                int idx = tags_.indexOf(tagId) + 1 + spaceOrder_.size();
+                 emit dataChanged(index(idx),
+                                  index(idx),
+                                  {
+@@ -538,8 +599,8 @@ CommunitiesModel::sync(const mtx::responses::Sync &sync_)
+ 
+                     int idx = i;
+                     do {
+-                        emit dataChanged(index(idx + 2),
+-                                         index(idx + 2),
++                        emit dataChanged(index(idx + 1),
++                                         index(idx + 1),
+                                          {
+                                            UnreadMessages,
+                                            HasLoudNotification,
+@@ -677,12 +738,12 @@ CommunitiesModel::toggleTagMute(QString tagId)
+     if (tagId.startsWith(QLatin1String("tag:"))) {
+         auto idx = tags_.indexOf(tagId.mid(4));
+         if (idx != -1)
+-            emit dataChanged(index(idx + 2 + spaceOrder_.size()),
+-                             index(idx + 2 + spaceOrder_.size()));
++            emit dataChanged(index(idx + 1 + spaceOrder_.size()),
++                             index(idx + 1 + spaceOrder_.size()));
+     } else if (tagId.startsWith(QLatin1String("space:"))) {
+         auto idx = spaceOrder_.indexOf(tagId.mid(6));
+         if (idx != -1)
+-            emit dataChanged(index(idx + 2), index(idx + 2));
++            emit dataChanged(index(idx + 1), index(idx + 1));
+     } else if (tagId == QLatin1String("dm")) {
+         emit dataChanged(index(1), index(1));
+     } else if (tagId == QLatin1String("global")) {
+@@ -702,10 +763,6 @@ namespace {
+ enum Categories
+ {
+     World,
+-    Direct,
+-    Favourites,
+-    Server,
+-    LowPrio,
+     Space,
+     UserTag,
+ };
+@@ -713,16 +770,8 @@ enum Categories
+ Categories
+ tagIdToCat(const QString &tagId)
+ {
+-    if (tagId.isEmpty())
++    if (tagId.isEmpty() || tagId == "global")
+         return World;
+-    else if (tagId == QLatin1String("dm"))
+-        return Direct;
+-    else if (tagId == QLatin1String("tag:m.favourite"))
+-        return Favourites;
+-    else if (tagId == QLatin1String("tag:m.server_notice"))
+-        return Server;
+-    else if (tagId == QLatin1String("tag:m.lowpriority"))
+-        return LowPrio;
+     else if (tagId.startsWith(QLatin1String("space:")))
+         return Space;
+     else
+@@ -743,14 +792,7 @@ FilteredCommunitiesModel::lessThan(const QModelIndex &left, const QModelIndex &r
+     if (leftCat != rightCat)
+         return leftCat < rightCat;
+ 
+-    if (leftCat == Space) {
+-        return left.row() < right.row();
+-    }
+-
+-    QString leftName  = sourceModel()->data(left_idx, CommunitiesModel::DisplayName).toString();
+-    QString rightName = sourceModel()->data(right_idx, CommunitiesModel::DisplayName).toString();
+-
+-    return leftName.compare(rightName, Qt::CaseInsensitive) < 0;
++    return left.row() < right.row();
+ }
+ bool
+ FilteredCommunitiesModel::filterAcceptsRow(int sourceRow, const QModelIndex &) const
+@@ -759,10 +801,10 @@ FilteredCommunitiesModel::filterAcceptsRow(int sourceRow, const QModelIndex &) c
+     if (!m)
+         return true;
+ 
+-    if (sourceRow < 2 || sourceRow - 2 >= m->spaceOrder_.size())
++    if (sourceRow < 1 || sourceRow - 1 >= m->spaceOrder_.size())
+         return true;
+ 
+-    auto idx = sourceRow - 2;
++    auto idx = sourceRow - 1;
+ 
+     while (idx >= 0 && m->spaceOrder_.tree[idx].depth > 0) {
+         idx = m->spaceOrder_.parent(idx);
+@@ -937,4 +979,184 @@ CommunitiesModel::updateSpaceStatus(QString space,
+     }
+ }
+ 
++QVariantList
++CommunitiesModel::allSpacesForRoom(QString roomId) const
++{
++    QVariantList ret;
++    auto room_ = roomId.toStdString();
++
++    for (const auto &[id, info] : spaces_) {
++        auto spaceId = id.toStdString();
++
++        auto child =
++          cache::client()->getStateEvent<mtx::events::state::space::Child>(spaceId, room_);
++        bool childValid =
++          child && !child->content.via.value_or(std::vector<std::string>{}).empty();
++
++        bool canEdit = Permissions(id).canChange(qml_mtx_events::SpaceChild);
++
++        ret.push_back(QVariant::fromValue(SpaceItem(id,
++                                                     QString::fromStdString(info.name),
++                                                     -1,
++                                                     childValid,
++                                                     false,
++                                                     false,
++                                                     canEdit,
++                                                     false)));
++    }
++
++    return ret;
++}
++
++// -----------------------------------------------------------------------
++// Space CRUD
++// -----------------------------------------------------------------------
++void
++CommunitiesModel::createSpace(const QString &name, const QString &topic, const QString &avatarUrl, bool isPublic)
++{
++    mtx::requests::CreateRoom req;
++    req.name          = name.toStdString();
++    req.topic         = topic.toStdString();
++    req.creation_content       = mtx::events::state::Create{};
++    req.creation_content->type = mtx::events::state::room_type::space;
++    req.preset        = isPublic ? mtx::requests::Preset::PublicChat : mtx::requests::Preset::PrivateChat;
++
++    if (!avatarUrl.isEmpty()) {
++        mtx::events::StrippedEvent<mtx::events::state::Avatar> avatarEvent;
++        avatarEvent.type              = mtx::events::EventType::RoomAvatar;
++        avatarEvent.content.url = avatarUrl.toStdString();
++        req.initial_state.emplace_back(std::move(avatarEvent));
++    }
++
++    http::client()->create_room(
++      req,
++      [this](const mtx::responses::CreateRoom &res, mtx::http::RequestErr err) {
++          if (err) {
++              QString msg = QString::fromStdString(err->matrix_error.error);
++              nhlog::ui()->error("Failed to create space: {}", msg.toStdString());
++              emit spaceError(tr("Failed to create space: %1").arg(msg));
++              return;
++          }
++          QString roomId = QString::fromStdString(res.room_id.to_string());
++          nhlog::ui()->info("Created space: {}", roomId.toStdString());
++          initializeSidebar();
++          emit spaceCreated(roomId);
++      });
++}
++
++void
++CommunitiesModel::updateSpace(const QString &spaceId, const QString &name, const QString &topic, const QString &avatarUrl)
++{
++    auto room_id = spaceId.toStdString();
++
++    // Send m.room.name if provided
++    if (!name.isEmpty()) {
++        mtx::events::state::Name nameEvent;
++        nameEvent.name = name.toStdString();
++        http::client()->send_state_event(
++          room_id, nameEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space name: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    // Send m.room.topic if provided
++    if (!topic.isEmpty()) {
++        mtx::events::state::Topic topicEvent;
++        topicEvent.topic = topic.toStdString();
++        http::client()->send_state_event(
++          room_id, topicEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space topic: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    // Send m.room.avatar if provided
++    if (!avatarUrl.isEmpty()) {
++        mtx::events::state::Avatar avatarEvent;
++        avatarEvent.url = avatarUrl.toStdString();
++        http::client()->send_state_event(
++          room_id, avatarEvent, [spaceId](const mtx::responses::EventId &, mtx::http::RequestErr err) {
++              if (err)
++                  nhlog::ui()->error("Failed to update space avatar: {}",
++                                     err->matrix_error.error);
++          });
++    }
++
++    emit spaceUpdated(spaceId);
++}
++
++void
++CommunitiesModel::deleteSpace(const QString &spaceId)
++{
++    // Leave the space room
++    ChatPage::instance()->leaveRoom(spaceId, QStringLiteral("Space deleted"));
++    emit spaceDeleted(spaceId);
++    initializeSidebar();
++}
++
++void CommunitiesModel::moveTag(int from, int to) {
++    if (from < 0 || from >= tags_.size() || to < 0 || to >= tags_.size() || from == to)
++        return;
++    
++    int modelFrom = from + 1 + spaceOrder_.size();
++    int modelTo = to + 1 + spaceOrder_.size();
++    
++    beginMoveRows(QModelIndex(), modelFrom, modelFrom,
++                  QModelIndex(), modelTo > modelFrom ? modelTo + 1 : modelTo);
++    tags_.move(from, to);
++    endMoveRows();
++    
++    UserSettings::instance()->setCustomTagOrder(tags_);
++}
++
++struct BeeperLabelsAccountData {
++    std::map<std::string, BeeperLabel> labels;
++};
++
++inline void to_json(nlohmann::json& j, const BeeperLabelsAccountData& obj) {
++    j = obj.labels;
++}
++
++void CommunitiesModel::updateBeeperLabel(QString uuid, QString name, QString icon)
++{
++    auto pureTag = "beeper:" + uuid;
++    UserSettings::instance()->updateCustomLabel(pureTag, name, icon);
++
++    auto labels = cache::client()->getBeeperLabels();
++    std::string uuid_str = uuid.toStdString();
++    
++    if (labels.count(uuid_str)) {
++        labels[uuid_str].title = name.toStdString();
++        
++        // Nlohmann json serialization
++        BeeperLabelsAccountData accountData;
++        accountData.labels = labels;
++
++        nlohmann::json payload;
++        to_json(payload, accountData);
++        std::string endpoint = "/client/v3/user/" + mtx::client::utils::url_encode(utils::localUser().toStdString()) + "/account_data/com.beeper.labels";
++        
++        http::client()->put(
++            endpoint,
++            payload.dump(),
++            [](mtx::http::HeaderFields, const std::string_view&, int err_code, int status_code) {
++                if (err_code || status_code >= 300) {
++                    nhlog::net()->warn("failed to update beeper label: err={} status={}", err_code, status_code);
++                }
++            },
++            true
++        );
++        
++        // Notify UI that data changed
++        int idx = tags_.indexOf(pureTag);
++        if (idx >= 0) {
++            idx += 1 + spaceOrder_.size();
++            emit dataChanged(index(idx), index(idx));
++        }
++    }
++}
++
+ #include "moc_CommunitiesModel.cpp"
