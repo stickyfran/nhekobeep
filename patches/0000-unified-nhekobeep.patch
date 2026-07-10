@@ -6502,3 +6502,16 @@ index b4b73ed3..710df04d 100644
  
      void setIgnored(bool ignored);
      bool ignored() const;
+diff --git a/src/ui/NhekoMenuVisibilityFilter.cpp b/src/ui/NhekoMenuVisibilityFilter.cpp
+index 16f0844f..40d91c62 100644
+--- a/src/ui/NhekoMenuVisibilityFilter.cpp
++++ b/src/ui/NhekoMenuVisibilityFilter.cpp
+@@ -54,7 +54,7 @@ NhekoMenuVisibilityFilter::replaceItem(QQmlListProperty<QQmlComponent> *p,
+                                        qsizetype index,
+                                        QQmlComponent *c)
+ {
+-    static_cast<NhekoMenuVisibilityFilter *>(p->object)->items_.assign(index, c);
++    static_cast<NhekoMenuVisibilityFilter *>(p->object)->items_.replace(index, c);
+     // static_cast<NhekoMenuVisibilityFilter *>(p->object)->updateTarget();
+ }
+ void
