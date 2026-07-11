@@ -3,9 +3,9 @@ import re
 with open("nheko/resources/qml/pages/UserSettingsPage.qml", "r") as f:
     c = f.read()
 
-# 1. Add import "../emoji"
+# 1. Add import "../emoji" and import "../ui"
 if 'import "../emoji"' not in c:
-    c = c.replace('import im.nheko', 'import im.nheko\nimport "../emoji"')
+    c = c.replace('import im.nheko', 'import im.nheko\nimport "../emoji"\nimport "../ui"')
 
 # 2. Add StickerPicker to customLabelsDialog
 picker = """

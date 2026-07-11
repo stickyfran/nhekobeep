@@ -1402,11 +1402,12 @@ diff --git a/resources/qml/pages/UserSettingsPage.qml b/resources/qml/pages/User
 index 8f51e668..5cf0684a 100644
 --- a/resources/qml/pages/UserSettingsPage.qml
 +++ b/resources/qml/pages/UserSettingsPage.qml
-@@ -10,6 +10,7 @@ import QtQuick.Controls
+@@ -10,6 +10,8 @@ import QtQuick.Controls
  import QtQuick.Layouts
  import QtQuick.Window
  import im.nheko
 +import "../emoji"
++import "../ui"
  
  Rectangle {
      id: userSettingsDialog
