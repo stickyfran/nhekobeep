@@ -1847,3 +1847,85 @@ index 00000000..1bd34d13
 +private:
 +    QAtomicInt *cancelled_;
 +};
+diff --git a/src/timeline/CommunitiesModel.cpp b/src/timeline/CommunitiesModel.cpp
+index a707c102..ccdc70d1 100644
+--- a/src/timeline/CommunitiesModel.cpp
++++ b/src/timeline/CommunitiesModel.cpp
+@@ -937,4 +937,51 @@ CommunitiesModel::updateSpaceStatus(QString space,
+     }
+ }
+ 
++struct BeeperLabelsAccountData {
++    std::map<std::string, BeeperLabel> labels;
++};
++
++inline void to_json(nlohmann::json& j, const BeeperLabelsAccountData& obj) {
++    j = obj.labels;
++}
++
++void CommunitiesModel::updateBeeperLabel(QString uuid, QString name, QString icon)
++{
++    auto pureTag = "beeper:" + uuid;
++    UserSettings::instance()->updateCustomLabel(pureTag, name, icon);
++
++    auto labels = cache::client()->getBeeperLabels();
++    std::string uuid_str = uuid.toStdString();
++    
++    if (labels.count(uuid_str)) {
++        labels[uuid_str].title = name.toStdString();
++        
++        // Nlohmann json serialization
++        BeeperLabelsAccountData accountData;
++        accountData.labels = labels;
++
++        nlohmann::json payload;
++        to_json(payload, accountData);
++        std::string endpoint = "/client/v3/user/" + mtx::client::utils::url_encode(utils::localUser().toStdString()) + "/account_data/com.beeper.labels";
++        
++        http::client()->put(
++            endpoint,
++            payload.dump(),
++            [](mtx::http::HeaderFields, const std::string_view&, int err_code, int status_code) {
++                if (err_code || status_code >= 300) {
++                    nhlog::net()->warn("failed to update beeper label: err={} status={}", err_code, status_code);
++                }
++            },
++            true
++        );
++        
++        // Notify UI that data changed
++        int idx = tags_.indexOf(pureTag);
++        if (idx >= 0) {
++            idx += 1 + spaceOrder_.size();
++            emit dataChanged(index(idx), index(idx));
++        }
++    }
++}
++
+ #include "moc_CommunitiesModel.cpp"
+diff --git a/src/timeline/CommunitiesModel.h b/src/timeline/CommunitiesModel.h
+index 7af6d050..66dd147b 100644
+--- a/src/timeline/CommunitiesModel.h
++++ b/src/timeline/CommunitiesModel.h
+@@ -199,6 +199,8 @@ public:
+                                        bool setChild,
+                                        bool canonical) const;
+ 
++    Q_INVOKABLE void updateBeeperLabel(QString uuid, QString name, QString icon);
++
+ public slots:
+     void initializeSidebar();
+     void sync(const mtx::responses::Sync &sync_);
+diff --git a/src/ui/NhekoMenuVisibilityFilter.cpp b/src/ui/NhekoMenuVisibilityFilter.cpp
+index 16f0844f..40d91c62 100644
+--- a/src/ui/NhekoMenuVisibilityFilter.cpp
++++ b/src/ui/NhekoMenuVisibilityFilter.cpp
+@@ -54,7 +54,7 @@ NhekoMenuVisibilityFilter::replaceItem(QQmlListProperty<QQmlComponent> *p,
+                                        qsizetype index,
+                                        QQmlComponent *c)
+ {
+-    static_cast<NhekoMenuVisibilityFilter *>(p->object)->items_.assign(index, c);
++    static_cast<NhekoMenuVisibilityFilter *>(p->object)->items_.replace(index, c);
+     // static_cast<NhekoMenuVisibilityFilter *>(p->object)->updateTarget();
+ }
+ void
