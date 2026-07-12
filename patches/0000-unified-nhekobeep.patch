@@ -1,3 +1,53 @@
+diff --git a/resources/qml/MatrixTextField.qml b/resources/qml/MatrixTextField.qml
+index 4ceadf6c..e09fb42f 100644
+--- a/resources/qml/MatrixTextField.qml
++++ b/resources/qml/MatrixTextField.qml
+@@ -80,18 +80,16 @@ ColumnLayout {
+                 reversible: true
+                 to: "focused"
+ 
+-                NumberAnimation {
++                YAnimator {
+                     alwaysRunToEnd: true
+                     duration: 210
+                     easing.type: Easing.InCubic
+-                    properties: "y"
+                     target: labelC
+                 }
+-                NumberAnimation {
++                OpacityAnimator {
+                     alwaysRunToEnd: true
+                     duration: 210
+                     easing.type: Easing.InCubic
+-                    properties: "opacity"
+                     target: input
+                 }
+             }
+diff --git a/resources/qml/MessageInput.qml b/resources/qml/MessageInput.qml
+index 4cc1445c..bcc23135 100644
+--- a/resources/qml/MessageInput.qml
++++ b/resources/qml/MessageInput.qml
+@@ -345,18 +345,16 @@ Rectangle {
+                     y: messageInput.positionToRectangle(messageInput.completerTriggeredAt).y - height
+ 
+                     enter: Transition {
+-                        NumberAnimation {
++                        OpacityAnimator {
+                             duration: 100
+                             from: 0
+-                            property: "opacity"
+                             to: 1
+                         }
+                     }
+                     exit: Transition {
+-                        NumberAnimation {
++                        OpacityAnimator {
+                             duration: 100
+                             from: 1
+-                            property: "opacity"
+                             to: 0
+                         }
+                     }
 diff --git a/resources/qml/MessageView.qml b/resources/qml/MessageView.qml
 index 84b34a7b..d732a9c4 100644
 --- a/resources/qml/MessageView.qml
@@ -65,6 +115,36 @@ index 49454ac0..d7f9e954 100644
  
                      NhekoCursorShape {
                          anchors.fill: parent
+diff --git a/resources/qml/ui/Ripple.qml b/resources/qml/ui/Ripple.qml
+index 9d871419..e8331432 100644
+--- a/resources/qml/ui/Ripple.qml
++++ b/resources/qml/ui/Ripple.qml
+@@ -104,11 +104,10 @@ Item {
+ 
+                                 }
+ 
+-                                NumberAnimation {
++                                OpacityAnimator {
+                                     id: opacity_animation
+ 
+                                     target: circle
+-                                    properties: "opacity"
+                                     to: 0
+                                     duration: ripple.opacityAnimationDuration
+ 
+diff --git a/src/ChatPage.cpp b/src/ChatPage.cpp
+index bc83973a..9e4adc7b 100644
+--- a/src/ChatPage.cpp
++++ b/src/ChatPage.cpp
+@@ -876,7 +876,7 @@ ChatPage::handleSyncResponse(const mtx::responses::Sync &res, const std::string
+     }
+ 
+     if (shouldThrottleSync())
+-        QTimer::singleShot(1000, this, &ChatPage::trySyncCb);
++        QTimer::singleShot(10000, this, &ChatPage::trySyncCb);
+     else
+         emit trySyncCb();
+ }
 diff --git a/src/main.cpp b/src/main.cpp
 index bc13cdca..580aa3b9 100644
 --- a/src/main.cpp
