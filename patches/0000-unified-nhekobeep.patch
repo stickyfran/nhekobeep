@@ -145,6 +145,48 @@ index 49454ac0..ffe78a80 100644
  
                      NhekoCursorShape {
                          anchors.fill: parent
+diff --git a/resources/qml/delegates/ImageMessage.qml b/resources/qml/delegates/ImageMessage.qml
+index a97ba9f7..901ba225 100644
+--- a/resources/qml/delegates/ImageMessage.qml
++++ b/resources/qml/delegates/ImageMessage.qml
+@@ -82,23 +82,20 @@ AbstractButton {
+                 }
+ 
+                 ParallelAnimation {
+-                    NumberAnimation {
++                    OpacityAnimator {
+                         target: blurhash_
+-                        property: "opacity"
+                         duration: 300
+                         easing.type: Easing.Linear
+                     }
+ 
+-                    NumberAnimation {
++                    OpacityAnimator {
+                         target: img
+-                        property: "opacity"
+                         duration: 300
+                         easing.type: Easing.Linear
+                     }
+ 
+-                    NumberAnimation {
++                    OpacityAnimator {
+                         target: mxcimage
+-                        property: "opacity"
+                         duration: 300
+                         easing.type: Easing.Linear
+                     }
+@@ -122,8 +119,8 @@ AbstractButton {
+         smooth: true
+         mipmap: true
+ 
+-        sourceSize.width: Math.min(Screen.desktopAvailableWidth, originalWidth < 1 ? Screen.desktopAvailableWidth : originalWidth) * Screen.devicePixelRatio
+-        sourceSize.height: Math.min(Screen.desktopAvailableHeight, (originalWidth < 1 ? Screen.desktopAvailableHeight : originalWidth*proportionalHeight)) * Screen.devicePixelRatio
++        sourceSize.width: width * Screen.devicePixelRatio
++        sourceSize.height: height * Screen.devicePixelRatio
+     }
+ 
+     MxcAnimatedImage {
 diff --git a/resources/qml/dialogs/RoomDirectory.qml b/resources/qml/dialogs/RoomDirectory.qml
 index 6d11c1c5..f8e8eb6d 100644
 --- a/resources/qml/dialogs/RoomDirectory.qml
@@ -198,6 +240,50 @@ index 9d871419..e8331432 100644
                                      to: 0
                                      duration: ripple.opacityAnimationDuration
  
+diff --git a/resources/qml/ui/Snackbar.qml b/resources/qml/ui/Snackbar.qml
+index 3c526d8d..36bc333c 100644
+--- a/resources/qml/ui/Snackbar.qml
++++ b/resources/qml/ui/Snackbar.qml
+@@ -61,17 +61,15 @@ Popup {
+     }
+ 
+     enter: Transition {
+-        NumberAnimation {
++        OpacityAnimator {
+             target: snackbar
+-            property: "opacity"
+             from: 0.0
+             to: 1.0
+             duration: 200
+             easing.type: Easing.OutCubic
+         }
+-        NumberAnimation {
++        YAnimator {
+             target: snackbar
+-            properties: "y"
+             from: -100
+             to: 100
+             duration: 1000
+@@ -79,17 +77,15 @@ Popup {
+         }
+     }
+     exit: Transition {
+-        NumberAnimation {
++        OpacityAnimator {
+             target: snackbar
+-            property: "opacity"
+             from: 1.0
+             to: 0.0
+             duration: 300
+             easing.type: Easing.InCubic
+         }
+-        NumberAnimation {
++        YAnimator {
+             target: snackbar
+-            properties: "y"
+             to: -100
+             from: 100
+             duration: 300
 diff --git a/src/ChatPage.cpp b/src/ChatPage.cpp
 index bc83973a..9e4adc7b 100644
 --- a/src/ChatPage.cpp
