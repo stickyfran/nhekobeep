@@ -1,3 +1,15 @@
+diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
+index a1344749..13c099f9 100644
+--- a/resources/qml/CommunitiesList.qml
++++ b/resources/qml/CommunitiesList.qml
+@@ -37,6 +37,7 @@ Page {
+         height: parent.height
+         model: Communities.filtered()
+         boundsBehavior: Flickable.StopAtBounds
++        reuseItems: true
+ 
+         ScrollBar.vertical: ScrollBar {
+             id: scrollbar
 diff --git a/resources/qml/MatrixTextField.qml b/resources/qml/MatrixTextField.qml
 index 4ceadf6c..e09fb42f 100644
 --- a/resources/qml/MatrixTextField.qml
@@ -133,6 +145,42 @@ index 49454ac0..ffe78a80 100644
  
                      NhekoCursorShape {
                          anchors.fill: parent
+diff --git a/resources/qml/dialogs/RoomDirectory.qml b/resources/qml/dialogs/RoomDirectory.qml
+index 6d11c1c5..f8e8eb6d 100644
+--- a/resources/qml/dialogs/RoomDirectory.qml
++++ b/resources/qml/dialogs/RoomDirectory.qml
+@@ -37,6 +37,7 @@ ApplicationWindow {
+ 
+         anchors.fill: parent
+         model: publicRooms
++        reuseItems: true
+ 
+         delegate: Rectangle {
+             id: roomDirDelegate
+diff --git a/resources/qml/dialogs/RoomMembers.qml b/resources/qml/dialogs/RoomMembers.qml
+index f9f72e5b..9de58180 100644
+--- a/resources/qml/dialogs/RoomMembers.qml
++++ b/resources/qml/dialogs/RoomMembers.qml
+@@ -111,6 +111,7 @@ ApplicationWindow {
+                 clip: true
+                 boundsBehavior: Flickable.StopAtBounds
+                 model: members
++                reuseItems: true
+ 
+ 
+                 delegate: ItemDelegate {
+diff --git a/resources/qml/dialogs/UserProfile.qml b/resources/qml/dialogs/UserProfile.qml
+index d2566d45..bde8f2f5 100644
+--- a/resources/qml/dialogs/UserProfile.qml
++++ b/resources/qml/dialogs/UserProfile.qml
+@@ -46,6 +46,7 @@ ApplicationWindow {
+         spacing: 8
+         boundsBehavior: Flickable.StopAtBounds
+         anchors.fill: parent
++        reuseItems: true
+         anchors.margins: 10
+         footerPositioning: ListView.OverlayFooter
+ 
 diff --git a/resources/qml/ui/Ripple.qml b/resources/qml/ui/Ripple.qml
 index 9d871419..e8331432 100644
 --- a/resources/qml/ui/Ripple.qml
