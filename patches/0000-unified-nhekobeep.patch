@@ -90,9 +90,18 @@ index db4f2cb7..09cf5d71 100644
              id: scrollbar
  
 diff --git a/resources/qml/TimelineBubbleMessageStyle.qml b/resources/qml/TimelineBubbleMessageStyle.qml
-index 722718bc..7959c039 100644
+index 722718bc..0a5a0a5e 100644
 --- a/resources/qml/TimelineBubbleMessageStyle.qml
 +++ b/resources/qml/TimelineBubbleMessageStyle.qml
+@@ -62,7 +62,7 @@ TimelineEvent {
+             id: section
+ 
+             active: wrapper.previousMessageUserId !== wrapper.userId || wrapper.showSection || wrapper.previousMessageIsStateEvent !== wrapper.isStateEvent
+-            //asynchronous: true
++            asynchronous: true
+             sourceComponent: TimelineSectionHeader {
+                 day: wrapper.day
+                 isSender: wrapper.isSender
 @@ -219,7 +219,7 @@ TimelineEvent {
  
                              property color userColor: TimelineManager.userColor(wrapper.reply?.userId ?? '', palette.base)
@@ -103,9 +112,18 @@ index 722718bc..7959c039 100644
                              NhekoCursorShape {
                                  anchors.fill: parent
 diff --git a/resources/qml/TimelineDefaultMessageStyle.qml b/resources/qml/TimelineDefaultMessageStyle.qml
-index 49454ac0..d7f9e954 100644
+index 49454ac0..ffe78a80 100644
 --- a/resources/qml/TimelineDefaultMessageStyle.qml
 +++ b/resources/qml/TimelineDefaultMessageStyle.qml
+@@ -60,7 +60,7 @@ TimelineEvent {
+             id: section
+ 
+             active: wrapper.previousMessageUserId !== wrapper.userId || wrapper.showSection || wrapper.previousMessageIsStateEvent !== wrapper.isStateEvent
+-            //asynchronous: true
++            asynchronous: true
+             sourceComponent: TimelineSectionHeader {
+                 day: wrapper.day
+                 isSender: wrapper.isSender
 @@ -198,7 +198,7 @@ TimelineEvent {
  
                      property color userColor: TimelineManager.userColor(wrapper.reply?.userId ?? '', palette.base)
@@ -172,3 +190,16 @@ index bc13cdca..580aa3b9 100644
      // this needs to be after setting the application name. Or how would we find our settings
      // file then?
  #if !defined(Q_OS_MACOS)
+diff --git a/src/timeline/EventStore.cpp b/src/timeline/EventStore.cpp
+index bc086a14..80b62764 100644
+--- a/src/timeline/EventStore.cpp
++++ b/src/timeline/EventStore.cpp
+@@ -929,7 +929,7 @@ EventStore::fetchMore()
+     mtx::http::MessagesOpts opts;
+     opts.room_id = room_id_;
+     opts.from    = cache::client()->previousBatchToken(room_id_);
+-    opts.limit   = 80;
++    opts.limit   = 40;
+ 
+     nhlog::ui()->debug("Paginating room {}, token {}", opts.room_id, opts.from);
+ 
