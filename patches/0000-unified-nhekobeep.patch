@@ -102,7 +102,7 @@ index db4f2cb7..09cf5d71 100644
              id: scrollbar
  
 diff --git a/resources/qml/TimelineBubbleMessageStyle.qml b/resources/qml/TimelineBubbleMessageStyle.qml
-index 722718bc..0a5a0a5e 100644
+index 722718bc..8c7369c4 100644
 --- a/resources/qml/TimelineBubbleMessageStyle.qml
 +++ b/resources/qml/TimelineBubbleMessageStyle.qml
 @@ -62,7 +62,7 @@ TimelineEvent {
@@ -114,6 +114,15 @@ index 722718bc..0a5a0a5e 100644
              sourceComponent: TimelineSectionHeader {
                  day: wrapper.day
                  isSender: wrapper.isSender
+@@ -102,7 +102,7 @@ TimelineEvent {
+             color: palette.highlight
+             enabled: false
+             opacity: 0
+-            visible: true
++            visible: opacity > 0
+             z: 1
+ 
+             states: State {
 @@ -219,7 +219,7 @@ TimelineEvent {
  
                              property color userColor: TimelineManager.userColor(wrapper.reply?.userId ?? '', palette.base)
@@ -124,7 +133,7 @@ index 722718bc..0a5a0a5e 100644
                              NhekoCursorShape {
                                  anchors.fill: parent
 diff --git a/resources/qml/TimelineDefaultMessageStyle.qml b/resources/qml/TimelineDefaultMessageStyle.qml
-index 49454ac0..ffe78a80 100644
+index 49454ac0..7189e558 100644
 --- a/resources/qml/TimelineDefaultMessageStyle.qml
 +++ b/resources/qml/TimelineDefaultMessageStyle.qml
 @@ -60,7 +60,7 @@ TimelineEvent {
@@ -136,6 +145,15 @@ index 49454ac0..ffe78a80 100644
              sourceComponent: TimelineSectionHeader {
                  day: wrapper.day
                  isSender: wrapper.isSender
+@@ -102,7 +102,7 @@ TimelineEvent {
+             color: palette.highlight
+             enabled: false
+             opacity: 0
+-            visible: true
++            visible: opacity > 0
+             z: 1
+ 
+             states: State {
 @@ -198,7 +198,7 @@ TimelineEvent {
  
                      property color userColor: TimelineManager.userColor(wrapper.reply?.userId ?? '', palette.base)
@@ -298,7 +316,7 @@ index bc83973a..9e4adc7b 100644
          emit trySyncCb();
  }
 diff --git a/src/main.cpp b/src/main.cpp
-index bc13cdca..580aa3b9 100644
+index bc13cdca..578a6df8 100644
 --- a/src/main.cpp
 +++ b/src/main.cpp
 @@ -5,6 +5,7 @@
@@ -309,7 +327,15 @@ index bc13cdca..580aa3b9 100644
  #include <QCommandLineParser>
  #include <QDesktopServices>
  #include <QDir>
-@@ -165,6 +166,14 @@ main(int argc, char *argv[])
+@@ -14,6 +15,7 @@
+ #include <QMessageBox>
+ #include <QPoint>
+ #include <QQuickView>
++#include <QQuickWindow>
+ #include <QScreen>
+ #include <QStandardPaths>
+ #include <QTranslator>
+@@ -165,6 +167,18 @@ main(int argc, char *argv[])
          qputenv("QML_DISABLE_DISK_CACHE", "1");
      }
  
@@ -320,6 +346,10 @@ index bc13cdca..580aa3b9 100644
 +
 +    // Force threaded render loop for maximum fluidity (overrides basic if set by default)
 +    qputenv("QSG_RENDER_LOOP", QByteArray("threaded"));
++
++    // Enable Native Text Rendering for crisp and fast text rendering (Phase 6)
++    qputenv("QT_QUICK_CONTROLS_TEXT_RENDER_TYPE", QByteArray("NativeTextRendering"));
++    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 +
      // this needs to be after setting the application name. Or how would we find our settings
      // file then?
