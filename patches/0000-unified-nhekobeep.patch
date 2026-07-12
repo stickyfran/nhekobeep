@@ -1,3 +1,33 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 81223130..85d7a180 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -22,6 +22,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "Require C++ standard to be suppor
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "compile as PIC by default")
+ set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "macos deployment target")
+ 
++# Phase 7: Enable Link-Time Optimization (IPO/LTO) globally for huge performance gains
++include(CheckIPOSupported)
++check_ipo_supported(RESULT ipo_supported)
++if(ipo_supported)
++    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
++endif()
++
+ option(HUNTER_ENABLED "Enable Hunter package manager" OFF)
+ include("cmake/HunterGate.cmake")
+ HunterGate(
+diff --git a/resources/qml/Avatar.qml b/resources/qml/Avatar.qml
+index 6217d70a..41a4c527 100644
+--- a/resources/qml/Avatar.qml
++++ b/resources/qml/Avatar.qml
+@@ -46,6 +46,7 @@ AbstractButton {
+         id: identicon
+ 
+         anchors.fill: parent
++        asynchronous: true
+         source: Settings.useIdenticon ? ("image://jdenticon/" + (avatar.userid !== "" ? avatar.userid : avatar.roomid) + "?radius=" + (Settings.avatarCircles ? 100 : 25)) : ""
+         visible: Settings.useIdenticon && img.status != Image.Ready
+     }
 diff --git a/resources/qml/CommunitiesList.qml b/resources/qml/CommunitiesList.qml
 index a1344749..13c099f9 100644
 --- a/resources/qml/CommunitiesList.qml
@@ -10,6 +40,18 @@ index a1344749..13c099f9 100644
  
          ScrollBar.vertical: ScrollBar {
              id: scrollbar
+diff --git a/resources/qml/ImageButton.qml b/resources/qml/ImageButton.qml
+index 783a01d0..3d25de58 100644
+--- a/resources/qml/ImageButton.qml
++++ b/resources/qml/ImageButton.qml
+@@ -27,6 +27,7 @@ AbstractButton {
+ 
+         // Workaround, can't get icon.source working for now...
+         anchors.fill: parent
++        asynchronous: true
+         fillMode: Image.PreserveAspectFit
+         source: button.image != "" ? ("image://colorimage/" + button.image + "?" + ((button.hovered && button.changeColorOnHover) ? button.highlightColor : button.buttonTextColor)) : ""
+         sourceSize.height: button.height
 diff --git a/resources/qml/MatrixTextField.qml b/resources/qml/MatrixTextField.qml
 index 4ceadf6c..e09fb42f 100644
 --- a/resources/qml/MatrixTextField.qml
@@ -87,6 +129,18 @@ index 84b34a7b..d732a9c4 100644
          onHeightChanged: contentY = (lastScrollPos-height)
  
          Component {
+diff --git a/resources/qml/Reactions.qml b/resources/qml/Reactions.qml
+index 93b3ed21..cd27a21f 100644
+--- a/resources/qml/Reactions.qml
++++ b/resources/qml/Reactions.qml
+@@ -73,6 +73,7 @@ Flow {
+                 }
+                 Image {
+                     anchors.verticalCenter: divider.verticalCenter
++                    asynchronous: true
+                     fillMode: Image.PreserveAspectFit
+                     height: textMetrics.height
+                     mipmap: true
 diff --git a/resources/qml/RoomList.qml b/resources/qml/RoomList.qml
 index db4f2cb7..09cf5d71 100644
 --- a/resources/qml/RoomList.qml
