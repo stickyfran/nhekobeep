@@ -308,7 +308,7 @@ index bc83973a..9e4adc7b 100644
          emit trySyncCb();
  }
 diff --git a/src/main.cpp b/src/main.cpp
-index bc13cdca..578a6df8 100644
+index bc13cdca..2b1c84cb 100644
 --- a/src/main.cpp
 +++ b/src/main.cpp
 @@ -5,6 +5,7 @@
@@ -327,7 +327,7 @@ index bc13cdca..578a6df8 100644
  #include <QScreen>
  #include <QStandardPaths>
  #include <QTranslator>
-@@ -165,6 +167,18 @@ main(int argc, char *argv[])
+@@ -165,6 +167,17 @@ main(int argc, char *argv[])
          qputenv("QML_DISABLE_DISK_CACHE", "1");
      }
  
@@ -339,13 +339,23 @@ index bc13cdca..578a6df8 100644
 +    // Force threaded render loop for maximum fluidity (overrides basic if set by default)
 +    qputenv("QSG_RENDER_LOOP", QByteArray("threaded"));
 +
-+    // Enable Native Text Rendering for crisp and fast text rendering (Phase 6)
++    // Enable Native Text Rendering for QML Controls 2 (Phase 6)
 +    qputenv("QT_QUICK_CONTROLS_TEXT_RENDER_TYPE", QByteArray("NativeTextRendering"));
-+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 +
      // this needs to be after setting the application name. Or how would we find our settings
      // file then?
  #if !defined(Q_OS_MACOS)
+@@ -186,6 +199,10 @@ main(int argc, char *argv[])
+ 
+     QApplication app(argc, argv);
+ 
++    // Force Native Text Rendering globally for raw Text elements (Phase 6)
++    // Must be called AFTER QApplication creation to avoid runtime crashes.
++    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
++
+     QCommandLineParser parser;
+     parser.addHelpOption();
+     parser.addVersionOption();
 diff --git a/src/timeline/EventStore.cpp b/src/timeline/EventStore.cpp
 index bc086a14..80b62764 100644
 --- a/src/timeline/EventStore.cpp
