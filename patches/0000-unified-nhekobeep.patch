@@ -66,20 +66,28 @@ index 49454ac0..d7f9e954 100644
                      NhekoCursorShape {
                          anchors.fill: parent
 diff --git a/src/main.cpp b/src/main.cpp
-index bc13cdca..d0fd79cc 100644
+index bc13cdca..580aa3b9 100644
 --- a/src/main.cpp
 +++ b/src/main.cpp
-@@ -165,6 +165,14 @@ main(int argc, char *argv[])
+@@ -5,6 +5,7 @@
+ #include <iostream>
+ 
+ #include <QApplication>
++#include <QByteArray>
+ #include <QCommandLineParser>
+ #include <QDesktopServices>
+ #include <QDir>
+@@ -165,6 +166,14 @@ main(int argc, char *argv[])
          qputenv("QML_DISABLE_DISK_CACHE", "1");
      }
  
 +    // Limit QML image cache to 50MB to reduce RAM usage
-+    if (qgetenv("QML_IMAGE_CACHE_SIZE").isEmpty()) {
-+        qputenv("QML_IMAGE_CACHE_SIZE", "52428800");
++    if (qgetenv("QML_IMAGE_CACHE_SIZE").size() == 0) {
++        qputenv("QML_IMAGE_CACHE_SIZE", QByteArray("52428800"));
 +    }
 +
 +    // Force threaded render loop for maximum fluidity (overrides basic if set by default)
-+    qputenv("QSG_RENDER_LOOP", "threaded");
++    qputenv("QSG_RENDER_LOOP", QByteArray("threaded"));
 +
      // this needs to be after setting the application name. Or how would we find our settings
      // file then?
