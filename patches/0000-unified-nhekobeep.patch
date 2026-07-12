@@ -312,50 +312,6 @@ index 9d871419..e8331432 100644
                                      to: 0
                                      duration: ripple.opacityAnimationDuration
  
-diff --git a/resources/qml/ui/Snackbar.qml b/resources/qml/ui/Snackbar.qml
-index 3c526d8d..36bc333c 100644
---- a/resources/qml/ui/Snackbar.qml
-+++ b/resources/qml/ui/Snackbar.qml
-@@ -61,17 +61,15 @@ Popup {
-     }
- 
-     enter: Transition {
--        NumberAnimation {
-+        OpacityAnimator {
-             target: snackbar
--            property: "opacity"
-             from: 0.0
-             to: 1.0
-             duration: 200
-             easing.type: Easing.OutCubic
-         }
--        NumberAnimation {
-+        YAnimator {
-             target: snackbar
--            properties: "y"
-             from: -100
-             to: 100
-             duration: 1000
-@@ -79,17 +77,15 @@ Popup {
-         }
-     }
-     exit: Transition {
--        NumberAnimation {
-+        OpacityAnimator {
-             target: snackbar
--            property: "opacity"
-             from: 1.0
-             to: 0.0
-             duration: 300
-             easing.type: Easing.InCubic
-         }
--        NumberAnimation {
-+        YAnimator {
-             target: snackbar
--            properties: "y"
-             to: -100
-             from: 100
-             duration: 300
 diff --git a/src/ChatPage.cpp b/src/ChatPage.cpp
 index bc83973a..9e4adc7b 100644
 --- a/src/ChatPage.cpp
